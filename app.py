@@ -655,38 +655,43 @@ with st.expander("ℹ️ Consignes et commandes", expanded=False):
         """
     )
 
-left, right = st.columns([3, 1])
+# Le dialogue utilise toute la largeur.
+# La photo apparaît en petit format directement au moment où M. Dujardin la présente.
+for message in st.session_state.history:
+    role = message.get("role")
+    content = message.get("content", "")
+    avatar = "🩺" if role == "user" else "🤒"
+    label = "user" if role == "user" else "assistant"
 
-with left:
-    for message in st.session_state.history:
-        role = message.get("role")
-        content = message.get("content", "")
-        avatar = "🩺" if role == "user" else "🤒"
-        label = "user" if role == "user" else "assistant"
+    with st.chat_message(label, avatar=avatar):
+        st.write(content)
 
-        with st.chat_message(label, avatar=avatar):
-            st.write(content)
+        if (
+            role == "assistant"
+            and st.session_state.image_visible
+            and "Voici la photo de ma main." in content
+        ):
+            if os.path.exists(IMAGE_PATH):
+                st.image(
+                    IMAGE_PATH,
+                    caption="Photo de la main de M. Dujardin",
+                    width=320,
+                )
+            else:
+                st.info("Le fichier blessure_main.png doit être ajouté au dépôt GitHub.")
 
-with right:
-    st.subheader("Photo")
-
-    if st.session_state.image_visible and os.path.exists(IMAGE_PATH):
+# Petit rappel de la photo, sans occuper une colonne permanente.
+if st.session_state.image_visible and os.path.exists(IMAGE_PATH):
+    with st.expander("🔎 Revoir la photo de la main de M. Dujardin", expanded=False):
         st.image(
             IMAGE_PATH,
             caption="Photo de la main de M. Dujardin",
-            use_container_width=True,
+            width=320,
         )
-    elif os.path.exists(IMAGE_PATH):
-        if st.button("Afficher la photo", use_container_width=True):
-            st.session_state.image_visible = True
-            st.rerun()
-    else:
-        st.info("Le fichier blessure_main.png doit être ajouté au dépôt GitHub.")
 
-    st.metric(
-        "Recommencements",
-        int(st.session_state.student_state.get("restart_count", 0)),
-    )
+st.caption(
+    f"Recommencements : {int(st.session_state.student_state.get('restart_count', 0))}"
+)
 
 user_input = st.chat_input("Ta réponse / ta question")
 

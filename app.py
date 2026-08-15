@@ -6,13 +6,16 @@ from xml.sax.saxutils import escape
 
 import streamlit as st
 from openai import OpenAI
+from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
-# ================== CONFIG ==================
+# ============================================================
+# CONFIGURATION
+# ============================================================
 
 st.set_page_config(
     page_title="Chatbot M. Dujardin – Téléconsultation SVT",
@@ -20,15 +23,9 @@ st.set_page_config(
     layout="wide",
 )
 
+APP_VERSION = "M. Dujardin V3.2 - validation par Entrée"
 MODEL_NAME = "gpt-4o-mini"
 IMAGE_PATH = "blessure_main.png"
-
-# IMPORTANT :
-# Pour une reprise fiable plusieurs jours plus tard, cette version utilise Upstash Redis.
-# Ajouter dans les Secrets Streamlit :
-# OPENAI_API_KEY = "..."
-# UPSTASH_REDIS_REST_URL = "..."
-# UPSTASH_REDIS_REST_TOKEN = "..."
 
 try:
     OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
@@ -54,13 +51,16 @@ if not OPENAI_API_KEY:
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# ================== STOCKAGE PERSISTANT ==================
+# ============================================================
+# STOCKAGE PERSISTANT
+# ============================================================
 
 redis_client = None
 
 if UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN:
     try:
         from upstash_redis import Redis
+
         redis_client = Redis(
             url=UPSTASH_REDIS_REST_URL,
             token=UPSTASH_REDIS_REST_TOKEN,
@@ -71,45 +71,46 @@ if UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN:
             f"Détail : {exc}"
         )
 
-# ================== PROMPTS ==================
+# ============================================================
+# PROMPT DU PATIENT
+# ============================================================
 
 SYSTEM_PROMPT = """
 Tu joues EXCLUSIVEMENT le rôle de M. Dujardin, un patient adulte inquiet en téléconsultation.
 L'élève joue le rôle du médecin.
 
-Tu n'es PAS professeur, tu n'expliques pas les mécanismes toi-même.
-Tu poses des QUESTIONS simples de patient pour amener l’élève à expliquer.
+Tu n'es PAS professeur : tu n'expliques pas les mécanismes toi-même.
+Tu poses des QUESTIONS simples de patient pour amener l'élève à expliquer.
 
-🎯 Objectifs pédagogiques (niveau 3e) :
-1. Amener l'élève à identifier les 4 signes de l'inflammation locale :
-   - rougeur
-   - chaleur
-   - gonflement
-   - douleur
-2. Pour CHAQUE signe, lui faire expliquer la CAUSE :
-   - rougeur : afflux sanguin / vasodilatation locale
-   - chaleur : arrivée de sang plus chaud / augmentation du débit sanguin
-   - gonflement : sortie de plasma, œdème, augmentation de la perméabilité des capillaires
-   - douleur : stimulation des terminaisons nerveuses par l’œdème et les médiateurs chimiques
-3. Amener l'élève à évoquer le rôle des cellules sentinelles :
-   - elles détectent la présence de microbes,
-   - elles libèrent des médiateurs chimiques (histamine, chimiokines) qui déclenchent la réaction inflammatoire.
-4. Amener l'élève à parler du rôle des leucocytes / globules blancs recrutés grâce à ces signaux.
-5. Amener l'élève à expliquer la phagocytose :
-   - reconnaissance / adhésion
-   - ingestion
-   - digestion
-   - rejet des déchets
+OBJECTIFS PÉDAGOGIQUES – NIVEAU 3e
 
-📌 Persona & style :
+1. Amener l'élève à identifier et expliquer les 4 signes de l'inflammation locale :
+- rougeur : vasodilatation / afflux sanguin local ;
+- chaleur : arrivée d'une plus grande quantité de sang plus chaud que les tissus ;
+- gonflement : augmentation de la perméabilité des capillaires, sortie de plasma, œdème ;
+- douleur : pression/étirement lié à l'œdème et action des médiateurs chimiques sur les récepteurs de la douleur.
+
+2. Amener l'élève à expliquer le rôle des cellules sentinelles :
+- elles détectent la présence de microbes ;
+- elles libèrent des médiateurs chimiques qui déclenchent et organisent la réaction inflammatoire.
+
+3. Amener l'élève à expliquer le rôle des leucocytes / globules blancs recrutés vers la zone lésée.
+
+4. Amener l'élève à expliquer la phagocytose :
+- reconnaissance / adhésion ;
+- ingestion ;
+- digestion ;
+- rejet des déchets.
+
+PERSONA
 - TA main est blessée, PAS celle du médecin.
 - Tu dis toujours « ma main », « ma blessure », « ma coupure ».
 - Tu ne dis JAMAIS « votre main » pour parler de la blessure.
-- Tu parles comme un patient inquiet : « docteur », « ma main », etc.
+- Tu parles comme un patient inquiet et poli.
 - Tu te réfères naturellement à la photo de ta main.
-- Tu restes bienveillant, simple et encourageant.
+- Tu restes bienveillant et simple.
 
-📌 Déroulement OBLIGATOIRE :
+ORDRE OBLIGATOIRE
 1. Rougeur
 2. Chaleur
 3. Gonflement
@@ -120,146 +121,226 @@ Tu poses des QUESTIONS simples de patient pour amener l’élève à expliquer.
 
 Tu dois couvrir ces 7 points sans en sauter.
 
-🔥 Gestion des réponses globales :
-- Si l’élève donne plusieurs réponses d’un coup, tu ne lui demandes pas de tout réécrire.
-- Tu t’appuies sur ce qu’il a déjà donné et tu vérifies les points manquants.
-- Tu peux demander une précision ciblée si une idée est incomplète.
+GESTION DES RÉPONSES GLOBALES
+- Si l'élève donne plusieurs réponses d'un coup, ne lui demande pas de tout réécrire.
+- Appuie-toi sur ce qu'il a déjà donné.
+- Vérifie seulement les points encore manquants ou incomplets.
 
-🔥 Très important :
-- Même si l’élève parle spontanément des globules blancs ou de la phagocytose avant la douleur,
-  tu NE SAUTES PAS l’étape douleur.
-- Tu dois poser au moins une question explicite sur la douleur et sa cause.
-- Tu dois poser au moins une question explicite sur les cellules sentinelles.
-- Tu dois vérifier les 4 étapes de la phagocytose.
+DIFFÉRENCIATION / AIDE PROGRESSIVE
+- D'abord, demande ce que l'élève pense.
+- Si la réponse est correcte mais incomplète :
+  1. valide précisément ce qui est juste ;
+  2. demande seulement l'élément manquant.
+- Si la réponse est fragile :
+  1. donne une relance ciblée ;
+  2. puis, si besoin, un indice court ;
+  3. puis un second indice plus guidé.
+- Si l'élève dit « je ne sais pas », ne donne PAS immédiatement la réponse complète.
+- Ne donne une explication complète qu'après plusieurs essais infructueux
+  ou si l'élève la demande explicitement.
+- N'exige pas un vocabulaire parfait : l'objectif est la compréhension au niveau 3e.
 
-🧩 Aide progressive :
-- D’abord demander à l’élève ce qu’il en pense.
-- Si la réponse est partielle : valider ce qui est juste puis demander ce qui manque.
-- Si l’élève ne sait pas : donner un indice, pas la réponse complète.
-- Ne donner la réponse complète qu’après plusieurs essais infructueux ou si l’élève la demande clairement.
+TRÈS IMPORTANT
+- Même si l'élève parle des globules blancs ou de la phagocytose avant la douleur,
+  tu NE SAUTES PAS l'étape douleur.
+- Tu poses au moins une question explicite sur la douleur et sa cause.
+- Tu poses au moins une question explicite sur les cellules sentinelles.
+- Tu vérifies les quatre étapes de la phagocytose.
 
-🔚 Fin de consultation :
-- Tu ne termines la consultation que lorsque les 7 étapes ont été réellement abordées.
+FIN DE CONSULTATION
+- Tu ne termines que lorsque les 7 étapes ont réellement été abordées.
 - Tu demandes :
   « Pour être sûr, docteur : la téléconsultation est-elle terminée pour vous,
   ou souhaitez-vous ajouter quelque chose avant que je clôture ? »
-- Si l’élève confirme, tu conclus :
+- Si l'élève confirme que c'est terminé, tu conclus EXACTEMENT par :
   « Merci beaucoup docteur, je vais prendre soin de ma main. »
 """
 
-REPORT_SYSTEM_PROMPT = """
-Tu es un professeur de SVT exigeant et juste.
-
-À partir du dialogue entre un élève (médecin) et M. Dujardin (patient),
-produis un bilan structuré.
-
-RÈGLE ESSENTIELLE :
-Tu dois évaluer uniquement ce que l'élève a réellement expliqué.
-Ne valorise jamais une notion simplement parce que M. Dujardin l'a évoquée dans ses questions.
-
-Structure attendue :
-
-1. Identité
-- Prénoms
-- Classe
-- Nombre de recommencements
-
-2. Réponses de l'élève
-Pour chaque notion ci-dessous, recopie la meilleure réponse réelle de l'élève, presque mot pour mot.
-Tu peux corriger uniquement l'orthographe, les accords et la ponctuation.
-Si une notion n'a pas été expliquée, écris : « Information absente ou insuffisante. »
-
-Notions à vérifier :
-- Rougeur
-- Chaleur
-- Gonflement
-- Douleur
-- Cellules sentinelles
-- Médiateurs chimiques
-- Leucocytes
-- Phagocytose : reconnaissance / adhésion
-- Phagocytose : ingestion
-- Phagocytose : digestion
-- Phagocytose : rejet des déchets
-
-3. Corrections / explications scientifiques
-
-Utilise exactement les explications suivantes :
-
-Rougeur : elle est due à la vasodilatation : les vaisseaux sanguins se dilatent et laissent passer plus de sang vers la zone blessée, ce qui la rend rouge.
-
-Chaleur : le sang qui arrive en plus grande quantité est légèrement plus chaud que les tissus. Cet afflux de sang augmente la température de la zone, d’où la sensation de chaleur.
-
-Gonflement : la vasodilatation rend les parois des capillaires plus perméables. Une partie du plasma sort des vaisseaux et s’accumule autour de la blessure : c’est l’œdème, qui fait gonfler les tissus.
-
-Douleur : l’œdème distend la peau et appuie sur les récepteurs à la douleur ; de plus, des substances libérées lors de l’inflammation stimulent ces récepteurs. Ils envoient alors un message nerveux de douleur jusqu’au cerveau.
-
-Cellules sentinelles : certaines cellules présentes dans la peau et les tissus (comme les mastocytes et les cellules dendritiques) reconnaissent l’entrée de microbes. Elles libèrent des médiateurs chimiques (histamine, chimiokines) qui provoquent la vasodilatation, l’augmentation de la perméabilité des capillaires et attirent d’autres cellules de défense vers la zone infectée.
-
-Leucocytes : ce sont des globules blancs qui quittent les capillaires et se dirigent vers la zone infectée. Ils reconnaissent les microbes et participent à leur élimination.
-
-Phagocytose :
-- Reconnaissance et adhésion : le phagocyte reconnaît le microbe et s’y colle.
-- Ingestion : il l’englobe dans une petite vésicule.
-- Digestion : des enzymes digestives détruisent le microbe à l’intérieur de cette vésicule.
-- Rejet des déchets : les débris du microbe qui n’ont pas été totalement digérés sont rejetés hors du phagocyte.
-
-4. Bilan pédagogique
-
-Attribue impérativement UN SEUL niveau selon les règles ci-dessous :
-
-TRÈS BIEN :
-- toutes les notions principales sont présentes ;
-- les 4 signes de l'inflammation sont expliqués avec leur mécanisme ;
-- cellules sentinelles + médiateurs chimiques sont compris ;
-- leucocytes sont expliqués ;
-- les 4 étapes de la phagocytose sont présentes.
-Quelques imprécisions mineures de vocabulaire sont tolérées.
-
-BIEN :
-- la majorité des notions est correcte ;
-- au maximum 2 éléments importants sont absents ou incomplets ;
-- aucune grande partie du raisonnement ne manque complètement.
-
-À RENFORCER :
-- 3 éléments importants ou plus sont absents ou insuffisants ;
-OU
-- un mécanisme majeur n'est pas compris ;
-OU
-- les cellules sentinelles / leucocytes / phagocytose sont très incomplètes ;
-OU
-- l'élève donne surtout des réponses très vagues.
-
-Tu n'as PAS le droit d'écrire « Bien » si 3 éléments importants ou plus manquent.
-Tu n'as PAS le droit d'écrire « Très bien » si une étape de la phagocytose manque.
-Tu n'as PAS le droit d'écrire « Très bien » si cellules sentinelles ou médiateurs chimiques sont absents.
-
-Termine par 1 ou 2 phrases maximum expliquant précisément ce qui est réussi et ce qui reste à améliorer.
-"""
-
 INTRO_MESSAGE = (
-    "Bonjour docteur, je me suis coupé hier en bricolant et ma main m’inquiète un peu. "
+    "Bonjour docteur, je me suis coupé hier en bricolant et ma main m'inquiète un peu. "
     "Elle est rouge, chaude, gonflée et douloureuse.\n\n"
     "Voici la photo de ma main.\n\n"
-    "Pourquoi ma main est-elle rouge d’après vous ?"
+    "Pourquoi ma main est-elle rouge d'après vous ?"
 )
 
-# ================== OUTILS ==================
+# ============================================================
+# RÉFÉRENCE SCIENTIFIQUE
+# ============================================================
 
-def call_openai(messages):
+SCIENTIFIC_CORRECTIONS = [
+    (
+        "Rougeur",
+        "Elle est due à la vasodilatation : les vaisseaux sanguins se dilatent et "
+        "laissent passer plus de sang vers la zone blessée, ce qui la rend rouge."
+    ),
+    (
+        "Chaleur",
+        "Le sang qui arrive en plus grande quantité est légèrement plus chaud que les tissus. "
+        "Cet afflux de sang augmente la température de la zone, d'où la sensation de chaleur."
+    ),
+    (
+        "Gonflement",
+        "La vasodilatation rend les parois des capillaires plus perméables. "
+        "Une partie du plasma sort des vaisseaux et s'accumule autour de la blessure : "
+        "c'est l'œdème, qui fait gonfler les tissus."
+    ),
+    (
+        "Douleur",
+        "L'œdème distend la peau et appuie sur les récepteurs à la douleur ; "
+        "de plus, des substances libérées lors de l'inflammation stimulent ces récepteurs. "
+        "Ils envoient alors un message nerveux de douleur jusqu'au cerveau."
+    ),
+    (
+        "Cellules sentinelles",
+        "Certaines cellules présentes dans la peau et les tissus (comme les mastocytes et "
+        "les cellules dendritiques) reconnaissent l'entrée de microbes. Elles libèrent des "
+        "médiateurs chimiques (histamine, chimiokines) qui provoquent la vasodilatation, "
+        "l'augmentation de la perméabilité des capillaires et attirent d'autres cellules "
+        "de défense vers la zone infectée."
+    ),
+    (
+        "Leucocytes",
+        "Ce sont des globules blancs qui quittent les capillaires et se dirigent vers la zone "
+        "infectée. Ils reconnaissent les microbes et participent à leur élimination."
+    ),
+    (
+        "Phagocytose",
+        "Reconnaissance et adhésion : le phagocyte reconnaît le microbe et s'y colle. "
+        "Ingestion : il l'englobe dans une petite vésicule. "
+        "Digestion : des enzymes digestives détruisent le microbe à l'intérieur de cette vésicule. "
+        "Rejet des déchets : les débris du microbe qui n'ont pas été totalement digérés sont "
+        "rejetés hors du phagocyte."
+    ),
+]
+
+# ============================================================
+# ÉVALUATION PAR COMPÉTENCES
+# ============================================================
+
+COMPETENCY_NAMES = [
+    "Expliquer les manifestations de la réaction inflammatoire",
+    "Expliquer le rôle des cellules sentinelles et des médiateurs chimiques",
+    "Expliquer le rôle des leucocytes dans la défense de l'organisme",
+    "Expliquer les étapes de la phagocytose",
+    "Communiquer à l'écrit en français dans un registre adapté au rôle de médecin",
+]
+
+LEVEL_LABELS = {
+    1: "Niveau 1 – Maîtrise insuffisante",
+    2: "Niveau 2 – Maîtrise fragile",
+    3: "Niveau 3 – Maîtrise satisfaisante",
+    4: "Niveau 4 – Très bonne maîtrise",
+}
+
+ASSESSMENT_SYSTEM_PROMPT = """
+Tu es un professeur de SVT de collège qui évalue une téléconsultation réalisée par un élève de 3e.
+
+Tu dois produire une évaluation PAR COMPÉTENCES, avec 4 niveaux.
+
+ÉCHELLE
+1 = Maîtrise insuffisante
+Les bases ne sont pas assimilées ; les objectifs ne sont pas atteints.
+
+2 = Maîtrise fragile
+Les bases sont en cours d'acquisition ou partiellement comprises ;
+l'élève a encore besoin d'un étayage important.
+
+3 = Maîtrise satisfaisante
+La compétence est acquise de manière autonome ;
+c'est le niveau attendu en fin de cycle.
+
+4 = Très bonne maîtrise
+L'élève maîtrise très bien la compétence, mobilise un vocabulaire précis,
+explique avec aisance et dépasse les attentes ordinaires de 3e.
+
+Évalue EXACTEMENT ces 5 compétences :
+1. Expliquer les manifestations de la réaction inflammatoire
+2. Expliquer le rôle des cellules sentinelles et des médiateurs chimiques
+3. Expliquer le rôle des leucocytes dans la défense de l'organisme
+4. Expliquer les étapes de la phagocytose
+5. Communiquer à l'écrit en français dans un registre adapté au rôle de médecin
+
+RÈGLES D'ÉVALUATION SCIENTIFIQUE
+- Évalue uniquement ce que l'élève a réellement écrit.
+- Une notion partiellement correcte ne doit pas être traitée comme absente.
+- Ne sois ni trop généreux, ni excessivement sévère.
+- Quelques fautes de vocabulaire ou formulations maladroites sont compatibles avec le niveau 3
+  si le mécanisme est globalement compris.
+- Le niveau 4 suppose une réponse particulièrement précise, complète et autonome.
+- Le niveau 1 doit être réservé aux bases réellement non comprises ou absentes.
+- Le niveau 2 correspond à une compréhension partielle ou fortement étayée.
+
+LANGUE FRANÇAISE / REGISTRE DU MÉDECIN
+- N'évalue pas seulement l'orthographe.
+- Observe surtout si l'élève écrit de façon compréhensible, avec des phrases adaptées,
+  un vocabulaire approprié et un registre compatible avec le rôle d'un médecin.
+- Quelques fautes d'orthographe n'empêchent pas le niveau 3.
+- Un ton très familier, des formulations de type discussion entre amis,
+  des insultes, du langage SMS ou des réponses extrêmement relâchées doivent faire baisser le niveau.
+- Le niveau 4 suppose une expression particulièrement claire, structurée et professionnelle pour un élève de 3e.
+
+PRISE EN COMPTE DE L'AIDE
+Le dialogue contient les relances et indices de M. Dujardin.
+- Une réponse obtenue seulement après beaucoup d'étayage peut correspondre au niveau 2.
+- Une réponse trouvée avec une petite relance peut rester au niveau 3.
+- Le niveau 4 suppose une forte autonomie.
+
+RENVOIE UNIQUEMENT un objet JSON valide, sans markdown, sans texte avant ou après :
+
+{
+  "competences": [
+    {
+      "nom": "Expliquer les manifestations de la réaction inflammatoire",
+      "niveau": 3,
+      "justification": "..."
+    },
+    {
+      "nom": "Expliquer le rôle des cellules sentinelles et des médiateurs chimiques",
+      "niveau": 2,
+      "justification": "..."
+    },
+    {
+      "nom": "Expliquer le rôle des leucocytes dans la défense de l'organisme",
+      "niveau": 3,
+      "justification": "..."
+    },
+    {
+      "nom": "Expliquer les étapes de la phagocytose",
+      "niveau": 4,
+      "justification": "..."
+    },
+    {
+      "nom": "Communiquer à l'écrit en français dans un registre adapté au rôle de médecin",
+      "niveau": 3,
+      "justification": "..."
+    }
+  ],
+  "appreciation": "2 ou 3 phrases maximum."
+}
+"""
+
+# ============================================================
+# OUTILS OPENAI
+# ============================================================
+
+def call_openai(messages, temperature=0.2):
     response = client.chat.completions.create(
         model=MODEL_NAME,
         messages=messages,
-        temperature=0.2,
+        temperature=temperature,
     )
     return response.choices[0].message.content
 
+# ============================================================
+# SAUVEGARDE / REPRISE
+# ============================================================
 
 def save_session(code, history, student_state, image_visible):
     if redis_client is None:
         return False, (
             "Le stockage persistant n'est pas configuré. "
-            "Ajoute UPSTASH_REDIS_REST_URL et UPSTASH_REDIS_REST_TOKEN dans les Secrets Streamlit."
+            "Ajoute UPSTASH_REDIS_REST_URL et UPSTASH_REDIS_REST_TOKEN "
+            "dans les Secrets Streamlit."
         )
 
     data = {
@@ -275,6 +356,19 @@ def save_session(code, history, student_state, image_visible):
     return True, None
 
 
+def autosave_current_session():
+    code = st.session_state.get("save_code")
+    if not code:
+        return
+
+    save_session(
+        code,
+        st.session_state.history,
+        st.session_state.student_state,
+        st.session_state.image_visible,
+    )
+
+
 def load_session(code):
     if redis_client is None:
         return None
@@ -288,10 +382,22 @@ def load_session(code):
 
     return json.loads(raw)
 
+# ============================================================
+# DIALOGUE DU RAPPORT
+# ============================================================
 
-def build_conversation_text(history):
-    conversation = ""
-    tour = 0
+def is_technical_command(content):
+    upper = (content or "").strip().upper()
+    return (
+        upper == "SAUVEGARDE"
+        or upper == "RECOMMENCER"
+        or upper.startswith("REPRISE ")
+    )
+
+
+def get_consultation_dialogue(history):
+    dialogue = []
+    consultation_started = False
 
     for msg in history:
         if not isinstance(msg, dict):
@@ -300,44 +406,169 @@ def build_conversation_text(history):
         role = msg.get("role")
         content = (msg.get("content") or "").strip()
 
-        if not content:
+        if not content or is_technical_command(content):
             continue
 
-        if role == "user":
-            # On n'intègre pas les commandes techniques dans le rapport scientifique.
-            if content.upper() in {"SAUVEGARDE", "RECOMMENCER"} or content.upper().startswith("REPRISE "):
-                continue
-            tour += 1
-            conversation += f"Tour {tour} - Élève : {content}\n"
-        elif role == "assistant":
-            conversation += f"Tour {tour} - M. Dujardin : {content}\n"
+        if role == "assistant" and content == INTRO_MESSAGE:
+            consultation_started = True
 
-    return conversation or "Aucun dialogue."
+        if consultation_started:
+            dialogue.append({
+                "role": role,
+                "content": content,
+            })
+
+    return dialogue
 
 
-def generate_report_text(history, student_state):
-    conversation = build_conversation_text(history)
+def build_dialogue_text(history):
+    dialogue = get_consultation_dialogue(history)
 
+    if not dialogue:
+        return "Aucun dialogue de téléconsultation."
+
+    lines = []
+
+    for msg in dialogue:
+        speaker = "Élève (médecin)" if msg["role"] == "user" else "M. Dujardin"
+        lines.append(f"{speaker} : {msg['content']}")
+
+    return "\n".join(lines)
+
+# ============================================================
+# ÉVALUATION
+# ============================================================
+
+def normalize_assessment(data):
+    result = {
+        "competences": [],
+        "appreciation": str(data.get("appreciation", "")).strip(),
+    }
+
+    returned = data.get("competences", [])
+    by_name = {}
+
+    for item in returned:
+        if not isinstance(item, dict):
+            continue
+
+        name = str(item.get("nom", "")).strip()
+
+        try:
+            level = int(item.get("niveau", 1))
+        except Exception:
+            level = 1
+
+        level = min(4, max(1, level))
+        justification = str(item.get("justification", "")).strip()
+
+        by_name[name] = {
+            "nom": name,
+            "niveau": level,
+            "justification": justification,
+        }
+
+    for expected_name in COMPETENCY_NAMES:
+        item = by_name.get(expected_name)
+
+        if item is None:
+            item = {
+                "nom": expected_name,
+                "niveau": 1,
+                "justification": "Évaluation automatique indisponible pour cette compétence.",
+            }
+
+        result["competences"].append(item)
+
+    if not result["appreciation"]:
+        result["appreciation"] = (
+            "Le bilan met en évidence les acquis et les points à consolider au cours de la téléconsultation."
+        )
+
+    return result
+
+
+def generate_assessment(history):
+    dialogue_text = build_dialogue_text(history)
+
+    raw = call_openai(
+        [
+            {"role": "system", "content": ASSESSMENT_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    "Voici le dialogue complet de la téléconsultation :\n\n"
+                    f"{dialogue_text}"
+                ),
+            },
+        ],
+        temperature=0.0,
+    )
+
+    cleaned = raw.strip()
+
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:].strip()
+
+    try:
+        data = json.loads(cleaned)
+    except Exception:
+        raise RuntimeError(
+            "L'évaluation automatique n'a pas renvoyé un JSON valide. "
+            "Relance la génération du bilan."
+        )
+
+    return normalize_assessment(data)
+
+# ============================================================
+# RAPPORT TEXTE
+# ============================================================
+
+def build_report_text(student_state, history, assessment):
     first_names = (student_state or {}).get("first_names") or "élève"
     classe = (student_state or {}).get("class") or "classe"
     restart_count = int((student_state or {}).get("restart_count", 0))
 
-    prompt_user = (
-        f"Prénoms : {first_names}\n"
-        f"Classe : {classe}\n"
-        f"Nombre de recommencements : {restart_count}\n\n"
-        "Voici le dialogue complet entre l'élève (médecin) et M. Dujardin :\n\n"
-        f"{conversation}"
-    )
+    lines = []
 
-    return call_openai(
-        [
-            {"role": "system", "content": REPORT_SYSTEM_PROMPT},
-            {"role": "user", "content": prompt_user},
-        ]
-    )
+    lines.append("1. Identité")
+    lines.append(f"- Prénoms : {first_names}")
+    lines.append(f"- Classe : {classe}")
+    lines.append(f"- Nombre de recommencements : {restart_count}")
+    lines.append("")
 
-# ================== PDF ==================
+    lines.append("2. Dialogue complet de la téléconsultation")
+    dialogue = get_consultation_dialogue(history)
+
+    for msg in dialogue:
+        speaker = "Élève (médecin)" if msg["role"] == "user" else "M. Dujardin"
+        lines.append(f"{speaker} : {msg['content']}")
+        lines.append("")
+
+    lines.append("3. Corrections / explications scientifiques")
+
+    for title, explanation in SCIENTIFIC_CORRECTIONS:
+        lines.append(f"{title} : {explanation}")
+        lines.append("")
+
+    lines.append("4. Bilan pédagogique par compétences")
+
+    for comp in assessment["competences"]:
+        level = comp["niveau"]
+        lines.append(f"- {comp['nom']} : {LEVEL_LABELS[level]}")
+        lines.append(f"  Justification : {comp['justification']}")
+
+    lines.append("")
+    lines.append("5. Appréciation")
+    lines.append(assessment["appreciation"])
+
+    return "\n".join(lines)
+
+# ============================================================
+# PDF
+# ============================================================
 
 def pdf_safe_text(text):
     replacements = {
@@ -350,21 +581,23 @@ def pdf_safe_text(text):
         "\u2014": "-",
         "\u00a0": " ",
     }
+
     for old, new in replacements.items():
         text = text.replace(old, new)
+
     return text
 
 
-def build_report_pdf(report_text):
+def build_report_pdf(student_state, history, assessment):
     buffer = BytesIO()
 
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        rightMargin=1.7 * cm,
-        leftMargin=1.7 * cm,
-        topMargin=1.6 * cm,
-        bottomMargin=1.6 * cm,
+        rightMargin=1.4 * cm,
+        leftMargin=1.4 * cm,
+        topMargin=1.4 * cm,
+        bottomMargin=1.4 * cm,
         title="Bilan de téléconsultation SVT - M. Dujardin",
         author="Chatbot pédagogique SVT",
     )
@@ -375,19 +608,10 @@ def build_report_pdf(report_text):
         "DujardinTitle",
         parent=styles["Title"],
         fontName="Helvetica-Bold",
-        fontSize=16,
-        leading=20,
+        fontSize=15,
+        leading=18,
         alignment=TA_CENTER,
-        spaceAfter=12,
-    )
-
-    body_style = ParagraphStyle(
-        "DujardinBody",
-        parent=styles["BodyText"],
-        fontName="Helvetica",
-        fontSize=9.5,
-        leading=13,
-        spaceAfter=4,
+        spaceAfter=10,
     )
 
     heading_style = ParagraphStyle(
@@ -396,36 +620,197 @@ def build_report_pdf(report_text):
         fontName="Helvetica-Bold",
         fontSize=11.5,
         leading=14,
-        spaceBefore=7,
+        spaceBefore=8,
+        spaceAfter=5,
+    )
+
+    body_style = ParagraphStyle(
+        "DujardinBody",
+        parent=styles["BodyText"],
+        fontName="Helvetica",
+        fontSize=9,
+        leading=12,
         spaceAfter=4,
+    )
+
+    small_style = ParagraphStyle(
+        "DujardinSmall",
+        parent=body_style,
+        fontSize=8,
+        leading=10,
     )
 
     story = [
         Paragraph("Bilan de téléconsultation SVT - M. Dujardin", title_style),
-        Spacer(1, 4),
     ]
 
-    safe_report = pdf_safe_text(report_text)
+    first_names = (student_state or {}).get("first_names") or "élève"
+    classe = (student_state or {}).get("class") or "classe"
+    restart_count = int((student_state or {}).get("restart_count", 0))
 
-    for raw_line in safe_report.splitlines():
-        line = raw_line.strip()
+    story.append(Paragraph("1. Identité", heading_style))
+    story.append(
+        Paragraph(
+            f"<b>Prénoms :</b> {escape(pdf_safe_text(first_names))}",
+            body_style,
+        )
+    )
+    story.append(
+        Paragraph(
+            f"<b>Classe :</b> {escape(pdf_safe_text(classe))}",
+            body_style,
+        )
+    )
+    story.append(
+        Paragraph(
+            f"<b>Nombre de recommencements :</b> {restart_count}",
+            body_style,
+        )
+    )
 
-        if not line:
-            story.append(Spacer(1, 4))
-            continue
+    story.append(
+        Paragraph("2. Dialogue complet de la téléconsultation", heading_style)
+    )
 
-        if line.startswith(("1.", "2.", "3.", "4.")):
-            story.append(Paragraph(escape(line), heading_style))
-        elif line.startswith("- "):
-            story.append(Paragraph("&#8226; " + escape(line[2:]), body_style))
-        else:
-            story.append(Paragraph(escape(line), body_style))
+    for msg in get_consultation_dialogue(history):
+        speaker = "Élève (médecin)" if msg["role"] == "user" else "M. Dujardin"
+        content = escape(pdf_safe_text(msg["content"])).replace("\n", "<br/>")
+
+        story.append(
+            Paragraph(
+                f"<b>{escape(speaker)} :</b> {content}",
+                body_style,
+            )
+        )
+
+    story.append(
+        Paragraph("3. Corrections / explications scientifiques", heading_style)
+    )
+
+    for title, explanation in SCIENTIFIC_CORRECTIONS:
+        story.append(
+            Paragraph(
+                f"<b>{escape(title)} :</b> {escape(pdf_safe_text(explanation))}",
+                body_style,
+            )
+        )
+
+    story.append(
+        Paragraph("4. Bilan pédagogique par compétences", heading_style)
+    )
+
+    table_data = [
+        [
+            Paragraph("<b>Compétence évaluée</b>", small_style),
+            Paragraph("<b>Niveau</b>", small_style),
+            Paragraph("<b>Justification</b>", small_style),
+        ]
+    ]
+
+    level_backgrounds = {
+        1: colors.HexColor("#FDE2E2"),
+        2: colors.HexColor("#FFF0D6"),
+        3: colors.HexColor("#E2F5E9"),
+        4: colors.HexColor("#E1ECFA"),
+    }
+
+    row_levels = []
+
+    for comp in assessment["competences"]:
+        level = int(comp["niveau"])
+        row_levels.append(level)
+
+        level_text = LEVEL_LABELS[level].split("–", 1)[1].strip()
+
+        table_data.append(
+            [
+                Paragraph(
+                    escape(pdf_safe_text(comp["nom"])),
+                    small_style,
+                ),
+                Paragraph(
+                    f"<b>Niveau {level}</b><br/>{escape(level_text)}",
+                    small_style,
+                ),
+                Paragraph(
+                    escape(pdf_safe_text(comp["justification"])),
+                    small_style,
+                ),
+            ]
+        )
+
+    table = Table(
+        table_data,
+        colWidths=[6.2 * cm, 3.2 * cm, 8.0 * cm],
+        repeatRows=1,
+        hAlign="LEFT",
+    )
+
+    commands = [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EDEDED")),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#999999")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]
+
+    for row_index, level in enumerate(row_levels, start=1):
+        commands.append(
+            (
+                "BACKGROUND",
+                (1, row_index),
+                (1, row_index),
+                level_backgrounds[level],
+            )
+        )
+
+    table.setStyle(TableStyle(commands))
+    story.append(table)
+    story.append(Spacer(1, 8))
+
+    story.append(Paragraph("<b>Repères des niveaux :</b>", body_style))
+    story.append(
+        Paragraph(
+            "<b>Niveau 1 – Maîtrise insuffisante :</b> bases non assimilées, objectifs non atteints.",
+            small_style,
+        )
+    )
+    story.append(
+        Paragraph(
+            "<b>Niveau 2 – Maîtrise fragile :</b> bases partiellement comprises, besoin d'un étayage important.",
+            small_style,
+        )
+    )
+    story.append(
+        Paragraph(
+            "<b>Niveau 3 – Maîtrise satisfaisante :</b> compétence acquise de manière autonome, niveau attendu.",
+            small_style,
+        )
+    )
+    story.append(
+        Paragraph(
+            "<b>Niveau 4 – Très bonne maîtrise :</b> maîtrise très solide, précise et mobilisée avec aisance.",
+            small_style,
+        )
+    )
+
+    story.append(Paragraph("5. Appréciation", heading_style))
+    story.append(
+        Paragraph(
+            escape(pdf_safe_text(assessment["appreciation"])),
+            body_style,
+        )
+    )
 
     doc.build(story)
     buffer.seek(0)
     return buffer.getvalue()
 
-# ================== ÉTAT STREAMLIT ==================
+# ============================================================
+# ÉTAT STREAMLIT
+# ============================================================
 
 def make_initial_student_state(restart_count=0):
     return {
@@ -439,8 +824,11 @@ def make_initial_student_state(restart_count=0):
 
 def reset_state(message=None, keep_restart_count=False):
     previous_count = 0
+
     if keep_restart_count and "student_state" in st.session_state:
-        previous_count = int(st.session_state.student_state.get("restart_count", 0))
+        previous_count = int(
+            st.session_state.student_state.get("restart_count", 0)
+        )
 
     st.session_state.history = [
         {
@@ -448,32 +836,36 @@ def reset_state(message=None, keep_restart_count=False):
             "content": message or "Bonjour ! Quels sont vos prénoms ?",
         }
     ]
+
     st.session_state.student_state = make_initial_student_state(previous_count)
     st.session_state.image_visible = False
     st.session_state.report_text = None
     st.session_state.report_pdf = None
+    st.session_state.assessment = None
     st.session_state.save_code = None
 
 
 if "history" not in st.session_state:
     reset_state()
 
-# ================== LOGIQUE CHAT ==================
+# ============================================================
+# LOGIQUE DU CHAT
+# ============================================================
 
 def process_user_message(text):
     text = (text or "").strip()
+
     if not text:
         return
 
     upper = text.upper()
-    lower = text.lower()
-
     history = st.session_state.history
     student_state = st.session_state.student_state
 
     # ---------- RECOMMENCER ----------
     if upper == "RECOMMENCER":
         new_count = int(student_state.get("restart_count", 0)) + 1
+        active_code = st.session_state.get("save_code")
 
         st.session_state.history = [
             {
@@ -484,11 +876,15 @@ def process_user_message(text):
                 ),
             }
         ]
+
         st.session_state.student_state = make_initial_student_state(new_count)
         st.session_state.image_visible = False
         st.session_state.report_text = None
         st.session_state.report_pdf = None
-        st.session_state.save_code = None
+        st.session_state.assessment = None
+        st.session_state.save_code = active_code
+
+        autosave_current_session()
         return
 
     # ---------- REPRISE ----------
@@ -500,7 +896,10 @@ def process_user_message(text):
             history.append(
                 {
                     "role": "assistant",
-                    "content": "Pour reprendre une consultation, écris par exemple : REPRISE ABC123.",
+                    "content": (
+                        "Pour reprendre une consultation, écris par exemple : "
+                        "REPRISE ABC123."
+                    ),
                 }
             )
             return
@@ -523,12 +922,16 @@ def process_user_message(text):
 
         st.session_state.history = data.get(
             "history",
-            [{"role": "assistant", "content": "Bonjour ! Quels sont vos prénoms ?"}],
+            [
+                {
+                    "role": "assistant",
+                    "content": "Bonjour ! Quels sont vos prénoms ?",
+                }
+            ],
         )
 
         loaded_state = data.get("student_state") or make_initial_student_state()
 
-        # Compatibilité avec une éventuelle ancienne sauvegarde
         if "name" in loaded_state and "first_names" not in loaded_state:
             loaded_state["first_names"] = loaded_state.pop("name")
 
@@ -539,6 +942,7 @@ def process_user_message(text):
         st.session_state.image_visible = data.get("image_visible", False)
         st.session_state.report_text = None
         st.session_state.report_pdf = None
+        st.session_state.assessment = None
         st.session_state.save_code = code
 
         st.session_state.history.append(
@@ -554,7 +958,10 @@ def process_user_message(text):
 
     # ---------- SAUVEGARDE ----------
     if upper == "SAUVEGARDE":
-        code = uuid.uuid4().hex[:6].upper()
+        code = st.session_state.get("save_code")
+
+        if not code:
+            code = uuid.uuid4().hex[:6].upper()
 
         ok, error = save_session(
             code,
@@ -578,12 +985,14 @@ def process_user_message(text):
             return
 
         st.session_state.save_code = code
+
         history.append(
             {
                 "role": "assistant",
                 "content": (
                     f"La consultation est sauvegardée. Ton code est : {code}\n\n"
-                    f"Pour la reprendre plus tard, écris : REPRISE {code}"
+                    f"Pour la reprendre à la prochaine séance, écris : REPRISE {code}\n\n"
+                    "Cette sauvegarde sera mise à jour automatiquement pendant la suite de la consultation."
                 ),
             }
         )
@@ -591,23 +1000,39 @@ def process_user_message(text):
 
     step = student_state.get("step", "ask_first_names")
 
-    # ---------- PRÉNOMS UNIQUEMENT ----------
+    # ---------- PRÉNOMS ----------
     if step == "ask_first_names":
         student_state["first_names"] = text
-        history.append({"role": "user", "content": text})
+
+        history.append(
+            {
+                "role": "user",
+                "content": text,
+            }
+        )
+
         history.append(
             {
                 "role": "assistant",
                 "content": "Merci ! Et dans quelle classe êtes-vous ? (ex : 3A, 3E...)",
             }
         )
+
         student_state["step"] = "ask_class"
+        autosave_current_session()
         return
 
     # ---------- CLASSE ----------
     if step == "ask_class":
         student_state["class"] = text
-        history.append({"role": "user", "content": text})
+
+        history.append(
+            {
+                "role": "user",
+                "content": text,
+            }
+        )
+
         history.append(
             {
                 "role": "assistant",
@@ -617,46 +1042,76 @@ def process_user_message(text):
                 ),
             }
         )
-        history.append({"role": "assistant", "content": INTRO_MESSAGE})
+
+        history.append(
+            {
+                "role": "assistant",
+                "content": INTRO_MESSAGE,
+            }
+        )
+
         student_state["step"] = "consultation"
         st.session_state.image_visible = True
+
+        autosave_current_session()
         return
 
     # ---------- CONSULTATION ----------
-    history.append({"role": "user", "content": text})
+    history.append(
+        {
+            "role": "user",
+            "content": text,
+        }
+    )
 
-    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
+    messages = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT,
+        }
+    ] + history
 
     try:
-        reply = call_openai(messages)
+        reply = call_openai(
+            messages,
+            temperature=0.35,
+        )
     except Exception as exc:
         reply = f"Erreur lors de l'appel à OpenAI : {exc}"
 
-    history.append({"role": "assistant", "content": reply})
+    history.append(
+        {
+            "role": "assistant",
+            "content": reply,
+        }
+    )
 
-    # La fin n'est validée que si M. Dujardin prononce sa phrase finale.
-    if "je vais prendre soin de ma main" in reply.lower():
+    if "merci beaucoup docteur, je vais prendre soin de ma main" in reply.lower():
         student_state["finished"] = True
 
-# ================== INTERFACE ==================
+    autosave_current_session()
+
+# ============================================================
+# INTERFACE
+# ============================================================
 
 st.title("🤒 Chatbot M. Dujardin – Téléconsultation SVT (3e)")
 st.caption("L'élève joue le rôle du médecin. M. Dujardin est le patient.")
+st.caption(f"Version : {APP_VERSION}")
 
 with st.expander("ℹ️ Consignes et commandes", expanded=False):
     st.markdown(
         """
 1. Indiquez uniquement vos **prénoms**, puis votre classe.
 2. Répondez aux questions de M. Dujardin comme un médecin.
-3. Le bilan final ne peut être généré qu'une fois la téléconsultation réellement terminée.
-4. **SAUVEGARDE** : crée un code de reprise.
-5. **REPRISE CODE** : reprend une consultation sauvegardée.
-6. **RECOMMENCER** : recommence depuis le début.
+3. Le bouton **Recommencer** permet de reprendre la téléconsultation depuis le début.
+4. Le bilan final ne peut être généré qu'une fois la téléconsultation réellement terminée.
+5. Pour interrompre une séance et la reprendre plus tard, écrivez **SAUVEGARDE** dans la zone de réponse puis conservez le code obtenu.
+6. À la séance suivante, écrivez **REPRISE CODE** dans la zone de réponse pour reprendre votre téléconsultation.
         """
     )
 
-# Le dialogue utilise toute la largeur.
-# La photo apparaît en petit format directement au moment où M. Dujardin la présente.
+# ---------- DIALOGUE ----------
 for message in st.session_state.history:
     role = message.get("role")
     content = message.get("content", "")
@@ -678,76 +1133,63 @@ for message in st.session_state.history:
                     width=320,
                 )
             else:
-                st.info("Le fichier blessure_main.png doit être ajouté au dépôt GitHub.")
+                st.info(
+                    "Le fichier blessure_main.png doit être ajouté au dépôt GitHub."
+                )
 
-# Petit rappel de la photo, sans occuper une colonne permanente.
-if st.session_state.image_visible and os.path.exists(IMAGE_PATH):
-    with st.expander("🔎 Revoir la photo de la main de M. Dujardin", expanded=False):
-        st.image(
-            IMAGE_PATH,
-            caption="Photo de la main de M. Dujardin",
-            width=320,
+# ---------- ZONE DE RÉPONSE INLINE ----------
+# IMPORTANT : on n'utilise PAS st.chat_input.
+# Le formulaire reste exactement à cet endroit, sous la dernière question.
+
+if not st.session_state.student_state.get("finished", False):
+    # La saisie reste dans le flux du dialogue.
+    # Aucun gros bouton "Envoyer" n'est affiché :
+    # l'élève valide simplement sa réponse avec la touche Entrée.
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stForm"] div[data-testid="stFormSubmitButton"] {
+            display: none;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    with st.form("response_form", clear_on_submit=True):
+        st.markdown("#### 🩺 Votre réponse")
+
+        user_input = st.text_input(
+            "Réponse",
+            placeholder="Écrivez votre réponse ici puis appuyez sur Entrée…",
+            label_visibility="collapsed",
         )
 
-st.caption(
-    f"Recommencements : {int(st.session_state.student_state.get('restart_count', 0))}"
-)
+        # Streamlit exige un submit_button dans un formulaire.
+        # Il est volontairement masqué par le CSS ci-dessus :
+        # la touche Entrée déclenche l'envoi.
+        send_clicked = st.form_submit_button("Envoyer")
 
-user_input = st.chat_input("Ta réponse / ta question")
+    if send_clicked and user_input.strip():
+        process_user_message(user_input)
+        st.rerun()
 
-if user_input:
-    process_user_message(user_input)
-    st.rerun()
-
-st.divider()
-
-col1, col2 = st.columns(2)
-
-with col1:
-    if st.button("🧾 Générer le bilan final", use_container_width=True):
-        finished = st.session_state.student_state.get("finished", False)
-
-        nb_consultation_msgs = sum(
-            1
-            for m in st.session_state.history
-            if isinstance(m, dict)
-            and m.get("role") == "user"
-            and (m.get("content") or "").strip().upper()
-            not in {"SAUVEGARDE", "RECOMMENCER"}
-            and not (m.get("content") or "").strip().upper().startswith("REPRISE ")
-        )
-
-        # Prénoms + classe = 2 messages.
-        if not finished:
-            st.warning(
-                "Le bilan ne peut être généré qu'à la fin de la téléconsultation. "
-                "M. Dujardin doit avoir terminé la consultation."
+    # Pendant la consultation, le bouton Recommencer se trouve sous la zone de réponse.
+    if st.button(
+        "🔄 Recommencer",
+        use_container_width=True,
+    ):
+        current_count = (
+            int(
+                st.session_state.student_state.get(
+                    "restart_count",
+                    0,
+                )
             )
-        elif nb_consultation_msgs <= 2:
-            st.warning(
-                "Il faut au moins une réponse médicale après les prénoms et la classe."
-            )
-        else:
-            with st.spinner("Génération du bilan..."):
-                try:
-                    report_text = generate_report_text(
-                        st.session_state.history,
-                        st.session_state.student_state,
-                    )
-
-                    st.session_state.report_text = report_text
-                    st.session_state.report_pdf = build_report_pdf(report_text)
-
-                except Exception as exc:
-                    st.error(f"Impossible de générer le bilan : {exc}")
-
-with col2:
-    if st.button("🔄 Recommencer", use_container_width=True):
-        st.session_state.student_state["restart_count"] = (
-            int(st.session_state.student_state.get("restart_count", 0)) + 1
+            + 1
         )
 
-        current_count = st.session_state.student_state["restart_count"]
+        active_code = st.session_state.get("save_code")
 
         st.session_state.history = [
             {
@@ -758,24 +1200,152 @@ with col2:
                 ),
             }
         ]
-        st.session_state.student_state = make_initial_student_state(current_count)
+
+        st.session_state.student_state = make_initial_student_state(
+            current_count
+        )
         st.session_state.image_visible = False
         st.session_state.report_text = None
         st.session_state.report_pdf = None
-        st.session_state.save_code = None
+        st.session_state.assessment = None
+        st.session_state.save_code = active_code
+
+        autosave_current_session()
         st.rerun()
+
+else:
+    # À la fin, la zone de réponse disparaît.
+    st.success(
+        "✅ La téléconsultation est terminée. "
+        "Vous pouvez maintenant générer votre bilan et le télécharger en PDF."
+    )
+
+    if st.button(
+        "🧾 Générer le bilan final",
+        use_container_width=True,
+        type="primary",
+    ):
+        with st.spinner("Analyse des compétences et génération du bilan..."):
+            try:
+                assessment = generate_assessment(
+                    st.session_state.history
+                )
+
+                report_text = build_report_text(
+                    st.session_state.student_state,
+                    st.session_state.history,
+                    assessment,
+                )
+
+                report_pdf = build_report_pdf(
+                    st.session_state.student_state,
+                    st.session_state.history,
+                    assessment,
+                )
+
+                st.session_state.assessment = assessment
+                st.session_state.report_text = report_text
+                st.session_state.report_pdf = report_pdf
+
+                autosave_current_session()
+
+            except Exception as exc:
+                st.error(
+                    f"Impossible de générer le bilan : {exc}"
+                )
+
+    if st.button(
+        "🔄 Recommencer",
+        use_container_width=True,
+        key="restart_after_finish",
+    ):
+        current_count = (
+            int(
+                st.session_state.student_state.get(
+                    "restart_count",
+                    0,
+                )
+            )
+            + 1
+        )
+
+        active_code = st.session_state.get("save_code")
+
+        st.session_state.history = [
+            {
+                "role": "assistant",
+                "content": (
+                    "Consultation recommencée depuis le début. "
+                    "Bonjour ! Quels sont vos prénoms ?"
+                ),
+            }
+        ]
+
+        st.session_state.student_state = make_initial_student_state(
+            current_count
+        )
+        st.session_state.image_visible = False
+        st.session_state.report_text = None
+        st.session_state.report_pdf = None
+        st.session_state.assessment = None
+        st.session_state.save_code = active_code
+
+        autosave_current_session()
+        st.rerun()
+
+st.divider()
+
+# ============================================================
+# AFFICHAGE DU BILAN
+# ============================================================
 
 if st.session_state.report_text:
     st.subheader("Bilan final")
 
-    st.text_area(
-        "Version texte copiable",
-        st.session_state.report_text,
-        height=430,
+    if st.session_state.assessment:
+        st.markdown("### Bilan pédagogique par compétences")
+
+        for comp in st.session_state.assessment["competences"]:
+            level = comp["niveau"]
+
+            if level == 1:
+                icon = "🔴"
+            elif level == 2:
+                icon = "🟠"
+            elif level == 3:
+                icon = "🟢"
+            else:
+                icon = "🔵"
+
+            st.markdown(
+                f"**{icon} {comp['nom']} — {LEVEL_LABELS[level]}**  \n"
+                f"{comp['justification']}"
+            )
+
+        st.markdown(
+            f"**Appréciation :** "
+            f"{st.session_state.assessment['appreciation']}"
+        )
+
+    with st.expander(
+        "Afficher le rapport complet en version texte",
+        expanded=False,
+    ):
+        st.text_area(
+            "Version texte copiable",
+            st.session_state.report_text,
+            height=520,
+        )
+
+    first_names = (
+        st.session_state.student_state.get("first_names")
+        or "eleve"
     )
 
-    first_names = st.session_state.student_state.get("first_names") or "eleve"
-    classe = st.session_state.student_state.get("class") or "classe"
+    classe = (
+        st.session_state.student_state.get("class")
+        or "classe"
+    )
 
     safe_filename = (
         f"bilan_dujardin_{first_names}_{classe}"
@@ -785,12 +1355,16 @@ if st.session_state.report_text:
 
     if st.session_state.report_pdf:
         st.download_button(
-            "📄 Télécharger le bilan en PDF",
+            "📄 Télécharger le bilan complet en PDF",
             data=st.session_state.report_pdf,
             file_name=f"{safe_filename}.pdf",
             mime="application/pdf",
             use_container_width=True,
         )
+
+# ============================================================
+# ÉTAT DE LA SAUVEGARDE
+# ============================================================
 
 if redis_client is None:
     st.info(
@@ -798,4 +1372,14 @@ if redis_client is None:
         "Le chatbot fonctionne, mais SAUVEGARDE / REPRISE nécessitent Upstash Redis."
     )
 else:
-    st.caption("Sauvegarde persistante active.")
+    if st.session_state.get("save_code"):
+        st.caption(
+            f"💾 Sauvegarde automatique active — code de reprise : "
+            f"{st.session_state.save_code}"
+        )
+    else:
+        st.caption(
+            "💾 Sauvegarde persistante disponible. "
+            "Écrivez SAUVEGARDE dans la zone de réponse pour obtenir un code ; "
+            "la consultation sera ensuite mise à jour automatiquement."
+        )

@@ -693,7 +693,15 @@ st.caption(
     f"Recommencements : {int(st.session_state.student_state.get('restart_count', 0))}"
 )
 
-user_input = st.chat_input("Ta réponse / ta question")
+# Zone de réponse intégrée dans le fil du dialogue.
+# Une fois la réponse envoyée, Streamlit relance la page :
+# la réponse devient une bulle du dialogue et une nouvelle zone apparaît sous la dernière intervention.
+with st.container():
+    st.markdown("#### 🩺 Votre réponse")
+    user_input = st.chat_input(
+        "Écrivez votre réponse ici…",
+        key="inline_chat_input",
+    )
 
 if user_input:
     process_user_message(user_input)

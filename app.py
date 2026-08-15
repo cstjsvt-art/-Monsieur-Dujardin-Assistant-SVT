@@ -23,7 +23,7 @@ st.set_page_config(
     layout="wide",
 )
 
-APP_VERSION = "M. Dujardin V3.2 - validation par Entrée"
+APP_VERSION = "M. Dujardin V3.3 - sauvegarde sécurisée"
 MODEL_NAME = "gpt-4o-mini"
 IMAGE_PATH = "blessure_main.png"
 
@@ -349,11 +349,18 @@ def save_session(code, history, student_state, image_visible):
         "image_visible": image_visible,
     }
 
-    redis_client.set(
-        f"dujardin:{code}",
-        json.dumps(data, ensure_ascii=False),
-    )
-    return True, None
+    try:
+        redis_client.set(
+            f"dujardin:{code}",
+            json.dumps(data, ensure_ascii=False),
+        )
+        return True, None
+    except Exception as exc:
+        return False, (
+            "La sauvegarde persistante est momentanément indisponible. "
+            "Vérifie les paramètres Upstash dans les Secrets Streamlit. "
+            f"Détail technique : {exc.__class__.__name__}"
+        )
 
 
 def autosave_current_session():
@@ -373,14 +380,21 @@ def load_session(code):
     if redis_client is None:
         return None
 
-    raw = redis_client.get(f"dujardin:{code}")
+    try:
+        raw = redis_client.get(f"dujardin:{code}")
+    except Exception:
+        return None
+
     if raw is None:
         return None
 
     if isinstance(raw, bytes):
         raw = raw.decode("utf-8")
 
-    return json.loads(raw)
+    try:
+        return json.loads(raw)
+    except Exception:
+        return None
 
 # ============================================================
 # DIALOGUE DU RAPPORT

@@ -1482,9 +1482,15 @@ else:
         "Vous pouvez maintenant générer votre bilan et le télécharger en PDF."
     )
 
+    st.markdown("### 📄 Générer le bilan final")
+    st.caption(
+        "Créez votre rapport personnalisé avec le bilan de la téléconsultation. "
+        "Un code de rapport vous sera donné : notez-le sur votre feuille."
+    )
+
     if st.button(
-        "🧾 Générer le bilan final",
-        use_container_width=True,
+        "📄 Générer le bilan final",
+        use_container_width=False,
         type="primary",
     ):
         with st.spinner("Analyse des compétences et génération du bilan..."):

@@ -1,10 +1,12 @@
 import os
 import uuid
 import json
+import base64
 from io import BytesIO
 from xml.sax.saxutils import escape
 
 import streamlit as st
+import streamlit.components.v1 as components
 from openai import OpenAI
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
@@ -23,7 +25,7 @@ st.set_page_config(
     layout="wide",
 )
 
-APP_VERSION = "M. Dujardin V3.5 - différenciation renforcée"
+APP_VERSION = "M. Dujardin V3.6 - mémoire formative"
 MODEL_NAME = "gpt-4o-mini"
 IMAGE_PATH = "blessure_main.png"
 
@@ -173,6 +175,17 @@ OBJECTIFS PÉDAGOGIQUES – NIVEAU 3e
 - digestion ;
 - rejet des déchets.
 
+CONNAISSANCES DÉJÀ TRAVAILLÉES EN CLASSE
+- Réaction inflammatoire : rougeur, chaleur, gonflement, douleur.
+- Cellules sentinelles : mastocytes et cellules dendritiques.
+- Médiateurs chimiques vus en classe : histamine et chimiokines.
+- L'histamine est reliée à la dilatation des vaisseaux et à l'afflux sanguin.
+- Les chimiokines attirent des phagocytes vers la zone infectée.
+- Le terme « phagocytose » a été appris en classe.
+- Vocabulaire travaillé : reconnaissance / adhésion, ingestion, prolongements cytoplasmiques,
+  vésicule, enzymes digestives, digestion, déchets / rejet.
+- M. Dujardin vérifie d'abord ce que l'élève restitue avant d'apporter une aide ou une correction.
+
 PERSONA
 - TA main est blessée, PAS celle du médecin.
 - Tu dis toujours « ma main », « ma blessure », « ma coupure ».
@@ -228,6 +241,12 @@ TRÈS IMPORTANT
   tu NE SAUTES PAS l'étape douleur.
 - Tu poses au moins une question explicite sur la douleur et sa cause.
 - Tu poses au moins une question explicite sur les cellules sentinelles.
+- Le mot « phagocytose » a été vu en classe : cherche d'abord à le faire produire par l'élève.
+- Après que l'élève a expliqué que certains globules blancs éliminent les microbes, demande :
+  « Comment appelle-t-on le mécanisme utilisé par certains globules blancs pour englober et détruire les microbes ? »
+- Ne prononce pas toi-même « phagocytose » avant que l'élève l'ait proposé, sauf après plusieurs essais infructueux.
+- Si l'élève dit « je ne sais pas », applique l'aide progressive avant de lui donner finalement le terme.
+- Une fois le mot retrouvé ou finalement fourni après étayage, demande à l'élève d'expliquer les étapes dans l'ordre.
 - Tu vérifies les quatre étapes de la phagocytose.
 
 FIN DE CONSULTATION
@@ -379,6 +398,9 @@ Le dialogue contient les relances et indices de M. Dujardin.
 - Une réponse obtenue seulement après beaucoup d'étayage peut correspondre au niveau 2.
 - Une réponse trouvée avec une petite relance peut rester au niveau 3.
 - Le niveau 4 suppose une forte autonomie.
+- Pour la phagocytose, distingue le mot produit spontanément, retrouvé après relance, ou finalement donné par M. Dujardin.
+- Si M. Dujardin a dû donner le mot « phagocytose », ne le présente jamais comme une restitution autonome.
+- La justification doit signaler une aide importante afin que le rapport serve à préparer la remédiation.
 
 RENVOIE UNIQUEMENT un objet JSON valide, sans markdown, sans texte avant ou après :
 
@@ -490,6 +512,32 @@ def load_session(code):
         return json.loads(raw)
     except Exception:
         return None
+
+
+def generate_report_code():
+    return uuid.uuid4().hex[:6].upper()
+
+
+def save_final_report(report_code, student_state, history, assessment, report_text, report_pdf):
+    if redis_client is None:
+        return False, "Le stockage du rapport n'est pas configuré."
+
+    payload = {
+        "student_state": student_state,
+        "history": history,
+        "assessment": assessment,
+        "report_text": report_text,
+        "report_pdf_b64": base64.b64encode(report_pdf).decode("ascii") if report_pdf else None,
+    }
+
+    try:
+        redis_client.set(
+            f"dujardin_report:{report_code}",
+            json.dumps(payload, ensure_ascii=False),
+        )
+        return True, None
+    except Exception as exc:
+        return False, f"Le rapport n'a pas pu être enregistré ({exc.__class__.__name__})."
 
 # ============================================================
 # DIALOGUE DU RAPPORT
@@ -681,7 +729,7 @@ def build_report_text(student_state, history, assessment):
         lines.append(f"{speaker} : {msg['content']}")
         lines.append("")
 
-    lines.append("3. Corrections / explications scientifiques")
+    lines.append("3. Ce qu’il faut retenir – correction scientifique")
 
     for title, explanation in SCIENTIFIC_CORRECTIONS:
         lines.append(f"{title} : {explanation}")
@@ -697,6 +745,23 @@ def build_report_text(student_state, history, assessment):
     lines.append("")
     lines.append("5. Appréciation")
     lines.append(assessment["appreciation"])
+    lines.append("")
+    lines.append("6. Pour progresser")
+
+    fragile = [
+        comp for comp in assessment["competences"]
+        if int(comp.get("niveau", 1)) <= 2
+    ]
+
+    if fragile:
+        lines.append("Après la remédiation en classe, revois en priorité :")
+        for comp in fragile:
+            lines.append(f"- {comp['nom']}")
+    else:
+        lines.append(
+            "Les connaissances essentielles sont globalement acquises. "
+            "Relis la partie « Ce qu’il faut retenir » après la correction en classe."
+        )
 
     return "\n".join(lines)
 
@@ -818,7 +883,7 @@ def build_report_pdf(student_state, history, assessment):
         )
 
     story.append(
-        Paragraph("3. Corrections / explications scientifiques", heading_style)
+        Paragraph("3. Ce qu’il faut retenir – correction scientifique", heading_style)
     )
 
     for title, explanation in SCIENTIFIC_CORRECTIONS:
@@ -938,9 +1003,60 @@ def build_report_pdf(student_state, history, assessment):
         )
     )
 
+    story.append(Paragraph("6. Pour progresser", heading_style))
+    fragile = [
+        comp for comp in assessment["competences"]
+        if int(comp.get("niveau", 1)) <= 2
+    ]
+
+    if fragile:
+        story.append(
+            Paragraph(
+                "Après la remédiation en classe, revois en priorité :",
+                body_style,
+            )
+        )
+        for comp in fragile:
+            story.append(
+                Paragraph(
+                    f"- {escape(pdf_safe_text(comp['nom']))}",
+                    body_style,
+                )
+            )
+    else:
+        story.append(
+            Paragraph(
+                "Les connaissances essentielles sont globalement acquises. "
+                "Relis la partie « Ce qu'il faut retenir » après la correction en classe.",
+                body_style,
+            )
+        )
+
     doc.build(story)
     buffer.seek(0)
     return buffer.getvalue()
+
+# ============================================================
+# ERGONOMIE : FOCUS AUTOMATIQUE
+# ============================================================
+
+def autofocus_response_input():
+    components.html(
+        """
+        <script>
+        setTimeout(() => {
+            const doc = window.parent.document;
+            const target = Array.from(doc.querySelectorAll('input')).find(
+                el => (el.getAttribute('placeholder') || '').includes('Écrivez votre réponse ici')
+            );
+            if (target) target.focus();
+        }, 180);
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
 
 # ============================================================
 # ÉTAT STREAMLIT
@@ -976,6 +1092,7 @@ def reset_state(message=None, keep_restart_count=False):
     st.session_state.report_text = None
     st.session_state.report_pdf = None
     st.session_state.assessment = None
+    st.session_state.report_code = None
     st.session_state.save_code = None
 
 
@@ -1004,6 +1121,7 @@ def restart_consultation():
     st.session_state.report_text = None
     st.session_state.report_pdf = None
     st.session_state.assessment = None
+    st.session_state.report_code = None
     st.session_state.save_code = active_code
     st.session_state.restart_confirm = False
 
@@ -1295,6 +1413,7 @@ with st.expander("ℹ️ Consignes et commandes", expanded=False):
 5. Pour interrompre une séance et la reprendre plus tard, écrivez **SAUVEGARDE** dans la zone de réponse puis conservez le code obtenu.
 6. À la séance suivante, écrivez **REPRISE** suivi de votre code, par exemple **REPRISE FE0A2F**.
 7. Le **code d'accès à l'application** et le **code de reprise d'une consultation** sont deux codes différents.
+8. À la fin, après génération du bilan, notez le **code du rapport** sur votre feuille : il permettra au professeur de retrouver votre bilan.
         """
     )
 
@@ -1351,6 +1470,8 @@ if not st.session_state.student_state.get("finished", False):
 
         send_clicked = st.form_submit_button("Envoyer")
 
+    autofocus_response_input()
+
     if send_clicked and user_input.strip():
         process_user_message(user_input)
         st.rerun()
@@ -1388,6 +1509,25 @@ else:
                 st.session_state.report_text = report_text
                 st.session_state.report_pdf = report_pdf
 
+                report_code = st.session_state.get("report_code")
+                if not report_code:
+                    report_code = generate_report_code()
+
+                ok_report, report_error = save_final_report(
+                    report_code,
+                    st.session_state.student_state,
+                    st.session_state.history,
+                    assessment,
+                    report_text,
+                    report_pdf,
+                )
+
+                if ok_report:
+                    st.session_state.report_code = report_code
+                else:
+                    st.session_state.report_code = None
+                    st.warning(report_error)
+
                 autosave_current_session()
 
             except Exception as exc:
@@ -1403,6 +1543,13 @@ st.divider()
 
 if st.session_state.report_text:
     st.subheader("Bilan final")
+
+    if st.session_state.get("report_code"):
+        st.success(
+            f"🧾 Code de votre rapport : **{st.session_state.report_code}**\n\n"
+            "Notez ce code sur votre feuille avant de quitter. "
+            "Il permettra à votre professeur de retrouver votre rapport."
+        )
 
     if st.session_state.assessment:
         st.markdown("### Bilan pédagogique par compétences")
@@ -1428,6 +1575,22 @@ if st.session_state.report_text:
             f"**Appréciation :** "
             f"{st.session_state.assessment['appreciation']}"
         )
+
+        fragile = [
+            comp for comp in st.session_state.assessment["competences"]
+            if int(comp.get("niveau", 1)) <= 2
+        ]
+
+        st.markdown("### 🎯 Pour progresser")
+        if fragile:
+            st.write("Après la remédiation en classe, revois en priorité :")
+            for comp in fragile:
+                st.write(f"• {comp['nom']}")
+        else:
+            st.write(
+                "Les connaissances essentielles sont globalement acquises. "
+                "Relis la partie « Ce qu’il faut retenir » après la correction en classe."
+            )
 
     with st.expander(
         "Afficher le rapport complet en version texte",

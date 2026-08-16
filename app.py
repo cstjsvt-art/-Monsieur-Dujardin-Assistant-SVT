@@ -23,7 +23,7 @@ st.set_page_config(
     layout="wide",
 )
 
-APP_VERSION = "M. Dujardin V3.3 - sauvegarde sécurisée"
+APP_VERSION = "M. Dujardin V3.4 - accès protégé"
 MODEL_NAME = "gpt-4o-mini"
 IMAGE_PATH = "blessure_main.png"
 
@@ -42,6 +42,12 @@ try:
 except Exception:
     UPSTASH_REDIS_REST_TOKEN = os.getenv("UPSTASH_REDIS_REST_TOKEN")
 
+
+try:
+    ACCESS_CODES = list(st.secrets.get("ACCESS_CODES", []))
+except Exception:
+    ACCESS_CODES = []
+
 if not OPENAI_API_KEY:
     st.error(
         "La clé OPENAI_API_KEY est introuvable. "
@@ -50,6 +56,71 @@ if not OPENAI_API_KEY:
     st.stop()
 
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+
+# ============================================================
+# CONTRÔLE D'ACCÈS À L'APPLICATION
+# ============================================================
+
+def normalize_access_code(value):
+    return (value or "").strip().upper()
+
+
+VALID_ACCESS_CODES = {
+    normalize_access_code(code)
+    for code in ACCESS_CODES
+    if str(code).strip()
+}
+
+
+def access_granted():
+    return bool(st.session_state.get("access_granted", False))
+
+
+def show_access_gate():
+    st.title("🤒 Chatbot M. Dujardin – Téléconsultation SVT (3e)")
+    st.caption("Accès réservé aux élèves disposant du code transmis par leur professeur.")
+    st.caption(f"Version : {APP_VERSION}")
+
+    st.info(
+        "🔐 Entrez le code d'accès donné par votre professeur. "
+        "Ce code est différent du code de reprise d'une consultation."
+    )
+
+    with st.form("access_form", clear_on_submit=False):
+        entered_code = st.text_input(
+            "Code d'accès",
+            type="password",
+            placeholder="Entrez le code d'accès…",
+        )
+
+        submit_access = st.form_submit_button(
+            "Accéder à la téléconsultation",
+            use_container_width=True,
+            type="primary",
+        )
+
+    if submit_access:
+        candidate = normalize_access_code(entered_code)
+
+        if not VALID_ACCESS_CODES:
+            st.error(
+                "Aucun code d'accès n'est configuré dans les Secrets Streamlit. "
+                "Le professeur doit renseigner ACCESS_CODES."
+            )
+        elif candidate in VALID_ACCESS_CODES:
+            st.session_state.access_granted = True
+            st.rerun()
+        else:
+            st.error(
+                "Code incorrect. Vérifiez le code donné par votre professeur."
+            )
+
+    st.stop()
+
+
+if not access_granted():
+    show_access_gate()
 
 # ============================================================
 # STOCKAGE PERSISTANT
@@ -918,7 +989,13 @@ def process_user_message(text):
             )
             return
 
-        code = parts[1].strip().upper()
+        # Accepte les deux formes :
+        # REPRISE ABC123
+        # REPRISE CODE ABC123
+        if len(parts) >= 3 and parts[1].strip().upper() == "CODE":
+            code = parts[2].strip().upper()
+        else:
+            code = parts[1].strip().upper()
         data = load_session(code)
 
         if data is None:
@@ -1110,6 +1187,11 @@ def process_user_message(text):
 # ============================================================
 
 st.title("🤒 Chatbot M. Dujardin – Téléconsultation SVT (3e)")
+with st.sidebar:
+    st.markdown("### Accès")
+    if st.button("🔒 Quitter l'accès protégé", use_container_width=True):
+        st.session_state.access_granted = False
+        st.rerun()
 st.caption("L'élève joue le rôle du médecin. M. Dujardin est le patient.")
 st.caption(f"Version : {APP_VERSION}")
 
@@ -1121,7 +1203,8 @@ with st.expander("ℹ️ Consignes et commandes", expanded=False):
 3. Le bouton **Recommencer** permet de reprendre la téléconsultation depuis le début.
 4. Le bilan final ne peut être généré qu'une fois la téléconsultation réellement terminée.
 5. Pour interrompre une séance et la reprendre plus tard, écrivez **SAUVEGARDE** dans la zone de réponse puis conservez le code obtenu.
-6. À la séance suivante, écrivez **REPRISE CODE** dans la zone de réponse pour reprendre votre téléconsultation.
+6. À la séance suivante, écrivez **REPRISE** suivi de votre code, par exemple **REPRISE FE0A2F**.
+7. Le **code d'accès à l'application** et le **code de reprise d'une consultation** sont deux codes différents.
         """
     )
 

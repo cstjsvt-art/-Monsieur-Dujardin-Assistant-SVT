@@ -27,7 +27,7 @@ st.set_page_config(
     layout="wide",
 )
 
-APP_VERSION = "M. Dujardin V4.0 - supports externes et remédiation graduée"
+APP_VERSION = "M. Dujardin V4.1 - remédiation persistante et bilan fiabilisé"
 MODEL_NAME = "gpt-4o-mini"
 ASSET_DIR = "assets"
 IMAGE_PATH = os.path.join(ASSET_DIR, "blessure_main.png")
@@ -572,6 +572,8 @@ AIDE PROGRESSIVE
 
 PHAGOCYTOSE — RÈGLES STRICTES
 A. NOM DU MÉCANISME
+- Avant de demander le nom, tu peux dire que certains leucocytes englobent puis détruisent les microbes.
+- INTERDICTION ABSOLUE : ne prononce pas « phagocytose » dans la question qui demande le nom du mécanisme.
 - Demande d'abord comment s'appelle le mécanisme.
 - Si l'élève bloque, utilise naturellement l'étymologie grecque « phagein » = « manger ».
 - Ne donne jamais « ça commence par phago... ».
@@ -677,6 +679,7 @@ COMPETENCY_NAMES = [
 ]
 
 LEVEL_LABELS = {
+    0: "Non évalué – problème technique",
     1: "Niveau 1 – Maîtrise insuffisante",
     2: "Niveau 2 – Maîtrise fragile",
     3: "Niveau 3 – Maîtrise satisfaisante",
@@ -686,25 +689,13 @@ LEVEL_LABELS = {
 ASSESSMENT_SYSTEM_PROMPT = """
 Tu es un professeur de SVT de collège qui évalue une téléconsultation réalisée par un élève de 3e.
 
-Tu dois produire une évaluation PAR COMPÉTENCES, avec 4 niveaux.
-
-ÉCHELLE
+Tu produis une évaluation PAR COMPÉTENCES avec 4 niveaux :
 1 = Maîtrise insuffisante
-Les bases ne sont pas assimilées ; les objectifs ne sont pas atteints.
-
 2 = Maîtrise fragile
-Les bases sont en cours d'acquisition ou partiellement comprises ;
-l'élève a encore besoin d'un étayage important.
-
-3 = Maîtrise satisfaisante
-La compétence est acquise de manière autonome ;
-c'est le niveau attendu en fin de cycle.
-
+3 = Maîtrise satisfaisante, niveau attendu en fin de cycle
 4 = Très bonne maîtrise
-L'élève maîtrise très bien la compétence, mobilise un vocabulaire précis,
-explique avec aisance et dépasse les attentes ordinaires de 3e.
 
-Évalue EXACTEMENT ces 6 compétences :
+Évalue EXACTEMENT et avec EXACTEMENT ces intitulés les 6 compétences suivantes :
 1. Identifier la réaction inflammatoire et ses quatre signes
 2. Expliquer les manifestations de la réaction inflammatoire
 3. Expliquer le rôle des cellules sentinelles et des médiateurs chimiques
@@ -712,112 +703,82 @@ explique avec aisance et dépasse les attentes ordinaires de 3e.
 5. Expliquer les étapes de la phagocytose
 6. Comprendre et utiliser le vocabulaire scientifique dans une communication écrite adaptée
 
-RÈGLES D'ÉVALUATION SCIENTIFIQUE
-- Évalue STRICTEMENT ce que l'élève a réellement écrit dans ses propres messages.
-- N'invente jamais qu'une notion a été évaluée si elle ne l'a pas réellement été.
-- Un terme seulement lu dans un document ou prononcé par M. Dujardin ne compte pas comme vocabulaire autonome.
-- Les explications, reformulations, mots scientifiques, corrections ou compléments donnés par M. Dujardin
-  ne doivent JAMAIS être attribués à l'élève et ne doivent JAMAIS augmenter son niveau.
-- Le dialogue complet sert uniquement à mesurer le degré d'aide et d'étayage reçu.
-- Une notion partiellement correcte ne doit pas être traitée comme absente.
-- Ne sois ni trop généreux, ni excessivement sévère.
-- Quelques fautes de vocabulaire ou formulations maladroites sont compatibles avec le niveau 3
-  si le mécanisme est globalement compris.
-- Le niveau 3 correspond au niveau attendu en 3e : l'élève comprend le mécanisme essentiel
-  et sait l'expliquer de façon autonome, même s'il ne cite pas tous les termes spécialisés.
-- Ne baisse PAS au niveau 2 uniquement parce que l'élève ne cite pas « histamine », « chimiokines »,
-  « diapédèse », « phagosome » ou un autre terme spécialisé si le mécanisme attendu est correctement compris.
-- Pour les cellules sentinelles / médiateurs chimiques, le niveau 3 est justifié si l'élève explique de lui-même
-  que les cellules sentinelles détectent les microbes, libèrent des substances chimiques et que ces substances
-  déclenchent/organisent la réaction inflammatoire ou attirent des cellules de défense.
-- Le niveau 4 suppose une réponse particulièrement précise, complète et autonome,
-  avec un vocabulaire scientifique riche et une mobilisation allant au-delà des attentes ordinaires de 3e.
-- Le niveau 1 doit être réservé aux bases réellement non comprises ou lorsque M. Dujardin fournit l'essentiel du mécanisme malgré plusieurs tentatives.
-- Le niveau 2 correspond à une compréhension partielle, fragile ou obtenue grâce à un étayage important.
-- Évalue une compétence COMPOSITE sur l'ensemble de ses sous-parties et non sur la meilleure réponse produite.
-- Pour « identification et manifestations de la réaction inflammatoire », examine séparément :
-  identification de l'inflammation, restitution des quatre signes, rougeur, chaleur, gonflement et douleur.
-  Si plusieurs de ces sous-parties ont nécessité des indices importants, un document ou une explication substantielle,
-  l'autonomie globale ne peut pas dépasser 2.
-- Pour « cellules sentinelles et médiateurs », examine détection des microbes, libération des médiateurs et rôle de ces médiateurs.
-  Si une partie centrale est fournie par M. Dujardin ou retrouvée après plusieurs aides, l'autonomie ne peut pas dépasser 2.
-- Pour « leucocytes », examine à la fois leur rôle de défense ET leur recrutement/attraction vers la blessure.
-  Si le rôle général est connu mais le recrutement n'est retrouvé qu'après un indice important ou un document, l'autonomie ne peut pas dépasser 2.
-- Pour la phagocytose, examine le terme, le nombre d'étapes et les quatre explications.
-  Une activité de remise en ordre, un document annoté ou une vidéo constituent des aides importantes.
-  Une reconstruction avec ces aides impose au maximum le niveau 2.
-- Si une sous-partie n'a PAS été posée par M. Dujardin, ne la considère jamais comme un échec de l'élève :
-  indique qu'elle n'a pas été évaluée et base le niveau sur les sous-parties réellement questionnées.
-- Dans chaque justification, cite seulement des éléments réellement formulés par l'élève et indique clairement les aides significatives.
+RÈGLES ABSOLUES
+- Évalue STRICTEMENT ce que l'élève a réellement écrit.
+- N'attribue jamais à l'élève une information fournie uniquement par M. Dujardin, un document, une activité ou une vidéo.
+- Une réponse correcte obtenue après une aide importante peut montrer une compréhension finale, mais son autonomie reste limitée.
+- N'invente jamais qu'une notion a été évaluée.
+- Si une sous-notion n'a pas été réellement questionnée, indique qu'elle n'a pas été évaluée et ne pénalise pas l'élève pour cela.
+- Le niveau 3 correspond au niveau attendu d'un élève de 3e, pas à une réponse parfaite.
+- Le niveau 4 suppose une maîtrise particulièrement solide, précise et autonome.
+
+AUTONOMIE
+4 = réponse spontanée, complète, précise et très solide.
+3 = réponse correcte et globalement autonome, éventuellement après une petite relance non révélatrice.
+2 = réponse reconstruite avec plusieurs relances, un document, une activité, une vidéo ou un étayage important.
+1 = mécanisme non compris ou réponse essentiellement fournie par M. Dujardin en dernier recours.
+Le niveau final ne peut jamais dépasser le niveau d'autonomie.
+
+COMPÉTENCE 1 — IDENTIFICATION
+- Évalue uniquement l'identification de l'inflammation et la restitution des quatre signes.
+- Les aides reçues PLUS TARD pour expliquer rougeur, chaleur, gonflement ou douleur ne doivent jamais faire baisser cette compétence.
+- Un élève qui identifie spontanément l'inflammation puis cite spontanément rougeur, chaleur, gonflement et douleur atteint normalement le niveau 3.
+- Le niveau 4 suppose une identification particulièrement assurée et éventuellement enrichie d'une formulation scientifique pertinente.
+
+COMPÉTENCE 2 — EXPLICATION DES MANIFESTATIONS
+- Examine séparément rougeur, chaleur, gonflement et douleur.
+- Plusieurs « je ne sais pas », documents ou guidages importants limitent l'autonomie de la partie concernée à 2.
+- Si plusieurs manifestations ont nécessité une aide importante, la compétence globale est au maximum niveau 2.
+
+CELLULES SENTINELLES / MÉDIATEURS
+- En 3e, n'exige pas la mémorisation détaillée de l'histamine et des chimiokines.
+- L'essentiel attendu est : détecter les microbes puis libérer des médiateurs chimiques participant à la réaction inflammatoire / au recrutement des défenses.
+
+LEUCOCYTES
+- Évalue le nom si celui-ci a été demandé et surtout leur rôle général de défense contre les microbes.
+- N'exige PAS le recrutement vers la blessure s'il n'a pas été explicitement questionné.
+- Ne prétends jamais qu'un recrutement a nécessité une aide si cette question n'a pas été posée.
+
+PHAGOCYTOSE
+- Distingue : retrouver le terme, le nombre d'étapes, les noms/ordre, puis expliquer les étapes.
+- Une activité de remise en ordre est une aide importante : elle limite l'autonomie sur les noms/ordre.
+- Document annoté + vidéo constituent une aide importante pour l'explication.
+- Une explication finale correcte après ces supports montre une compréhension finale, mais pas une autonomie de niveau 3 sur cette partie.
 
 VOCABULAIRE SCIENTIFIQUE / COMMUNICATION ÉCRITE
-- N'évalue pas seulement l'orthographe.
-- Observe si l'élève comprend les mots scientifiques utilisés, sait les réemployer avec un sens correct
-  et écrit dans un registre compatible avec le rôle d'un médecin.
-- Quelques fautes d'orthographe n'empêchent pas le niveau 3.
-- Une consultation ponctuelle du lexique ne suffit JAMAIS, à elle seule, à faire tomber l'élève au niveau 2.
-- Évalue surtout la quantité et la pertinence du vocabulaire scientifique produit spontanément dans l'ensemble de la consultation.
-- Le niveau 3 reste possible avec une ou deux consultations ponctuelles si l'élève mobilise par ailleurs plusieurs termes scientifiques correctement.
-- Le niveau 2 est pertinent si l'élève emploie peu de vocabulaire scientifique vu en classe, hésite souvent sur les termes essentiels
-  et/ou a besoin d'aides lexicales pour construire ses explications.
-- Un ton très familier, des formulations de type discussion entre amis, des insultes, du langage SMS
-  ou des réponses extrêmement relâchées doivent faire baisser le niveau.
-- Le niveau 4 suppose un vocabulaire scientifique précis, compris et mobilisé spontanément,
-  ainsi qu'une expression particulièrement claire et adaptée pour un élève de 3e.
+Cette compétence combine DEUX dimensions :
+1. l'emploi et la compréhension du vocabulaire scientifique ;
+2. la qualité de la communication écrite adaptée au rôle d'un médecin.
 
-PRISE EN COMPTE DE L'AIDE — RÈGLE OBLIGATOIRE
-Le dialogue contient les relances et indices de M. Dujardin.
-Tu dois distinguer DEUX choses pour chaque compétence :
-1. le niveau de compréhension scientifique atteint ;
-2. le niveau d'autonomie avec lequel l'élève y est arrivé.
+- Ne juge pas uniquement le nombre de mots scientifiques.
+- Un français clair, des phrases construites, une orthographe correcte et un registre adapté comptent positivement.
+- Mais une excellente expression française ne suffit pas à elle seule pour atteindre le niveau 3 si presque aucun vocabulaire scientifique pertinent n'est mobilisé.
+- Inversement, quelques fautes d'orthographe ne font pas automatiquement baisser un élève qui mobilise correctement les notions scientifiques.
+- Le niveau 3 est possible lorsque l'élève s'exprime clairement ET utilise plusieurs termes scientifiques pertinents, même si certains ont été réactivés par une aide ponctuelle.
+- Langage SMS, phrases très relâchées, nombreuses formulations incompréhensibles ou vocabulaire scientifique très pauvre peuvent limiter le niveau.
 
-ÉCHELLE D'AUTONOMIE À APPLIQUER STRICTEMENT
-4 = réponse spontanée, complète et précise, sans aide substantielle.
-3 = réponse globalement autonome, éventuellement après une petite relance ou une demande de précision.
-2 = réponse reconstruite avec plusieurs relances, indices, questions guidées ou un guidage étape par étape.
-1 = l'élève ne parvient pas à expliquer la notion ; l'essentiel de la réponse est fourni par M. Dujardin.
+RENVOIE UNIQUEMENT un objet JSON valide, sans markdown.
 
-RÈGLE DE PLAFONNEMENT
-- Le niveau final d'une compétence ne peut JAMAIS dépasser le niveau d'autonomie.
-- Donc :
-  * autonomie 4 -> niveau final maximum 4 ;
-  * autonomie 3 -> niveau final maximum 3 ;
-  * autonomie 2 -> niveau final maximum 2 ;
-  * autonomie 1 -> niveau final maximum 1.
-- Un élève qui finit par donner toutes les bonnes réponses après un guidage étape par étape reste au maximum au niveau 2.
-- Un élève qui dit « je ne sais pas » puis réussit grâce à plusieurs indices est au maximum au niveau 2 pour la notion concernée.
-- Une petite relance ponctuelle n'empêche pas le niveau 3.
-- Le niveau 4 suppose une réponse spontanée, complète, précise et autonome.
-
-CAS PARTICULIER DE LA PHAGOCYTOSE
-- Distingue quatre dimensions : terme « phagocytose », nombre d'étapes, noms/ordre des étapes, explication des étapes.
-- Distingue le mot « phagocytose » produit spontanément, retrouvé après relance, ou finalement donné par M. Dujardin.
-- Si M. Dujardin a dû donner le mot « phagocytose », ne le présente jamais comme une restitution autonome.
-- Si les étapes sont reconstruites une à une grâce aux questions de M. Dujardin, l'autonomie vaut 2 au maximum, même si les réponses finales sont scientifiquement justes.
-- La justification doit signaler l'aide reçue lorsqu'elle est importante afin que le rapport serve à préparer la remédiation.
-
-RENVOIE UNIQUEMENT un objet JSON valide, sans markdown, sans texte avant ou après.
-
-Pour chaque compétence :
-- "niveau_contenu" = qualité scientifique de ce que l'élève a finalement réussi à exprimer ;
-- "autonomie" = degré d'autonomie global observé selon l'échelle ci-dessus ;
-- "sous_parties" = liste des sous-notions réellement évaluées, chacune avec une autonomie de 1 à 4 ;
-- le programme recalculera ensuite un plafond d'autonomie pour les compétences composites.
-- La justification doit préciser brièvement si une aide, une relance, un document ou un guidage important a été nécessaire.
-
-Objet JSON attendu :
-
+Format EXACT attendu :
 {
   "competences": [
     {
-      "nom": "Identifier et expliquer les manifestations de la réaction inflammatoire",
+      "nom": "Identifier la réaction inflammatoire et ses quatre signes",
       "niveau_contenu": 3,
       "autonomie": 3,
       "sous_parties": [
         {"nom": "identifier l'inflammation", "autonomie": 3},
-        {"nom": "citer les quatre signes", "autonomie": 3},
-        {"nom": "rougeur", "autonomie": 3},
-        {"nom": "chaleur", "autonomie": 3},
+        {"nom": "citer les quatre signes", "autonomie": 3}
+      ],
+      "justification": "..."
+    },
+    {
+      "nom": "Expliquer les manifestations de la réaction inflammatoire",
+      "niveau_contenu": 3,
+      "autonomie": 2,
+      "sous_parties": [
+        {"nom": "rougeur", "autonomie": 2},
+        {"nom": "chaleur", "autonomie": 2},
         {"nom": "gonflement", "autonomie": 2},
         {"nom": "douleur", "autonomie": 2}
       ],
@@ -828,32 +789,30 @@ Objet JSON attendu :
       "niveau_contenu": 3,
       "autonomie": 2,
       "sous_parties": [
-        {"nom": "détection", "autonomie": 3},
-        {"nom": "médiateurs", "autonomie": 2},
-        {"nom": "rôle des médiateurs", "autonomie": 2}
+        {"nom": "détection des microbes", "autonomie": 3},
+        {"nom": "libération de médiateurs chimiques", "autonomie": 2}
       ],
       "justification": "..."
     },
     {
       "nom": "Expliquer le rôle des leucocytes dans la défense de l'organisme",
       "niveau_contenu": 3,
-      "autonomie": 2,
+      "autonomie": 3,
       "sous_parties": [
-        {"nom": "rôle de défense", "autonomie": 3},
-        {"nom": "recrutement vers la blessure", "autonomie": 2}
+        {"nom": "nom des leucocytes", "autonomie": 2},
+        {"nom": "rôle général de défense", "autonomie": 3}
       ],
       "justification": "..."
     },
     {
       "nom": "Expliquer les étapes de la phagocytose",
-      "niveau_contenu": 4,
+      "niveau_contenu": 3,
       "autonomie": 2,
       "sous_parties": [
         {"nom": "terme phagocytose", "autonomie": 2},
-        {"nom": "adhésion", "autonomie": 2},
-        {"nom": "ingestion", "autonomie": 3},
-        {"nom": "digestion", "autonomie": 2},
-        {"nom": "rejet", "autonomie": 3}
+        {"nom": "nombre d'étapes", "autonomie": 2},
+        {"nom": "noms et ordre", "autonomie": 2},
+        {"nom": "explication des étapes", "autonomie": 2}
       ],
       "justification": "..."
     },
@@ -861,6 +820,7 @@ Objet JSON attendu :
       "nom": "Comprendre et utiliser le vocabulaire scientifique dans une communication écrite adaptée",
       "niveau_contenu": 3,
       "autonomie": 3,
+      "sous_parties": [],
       "justification": "..."
     }
   ],
@@ -1061,10 +1021,19 @@ def normalize_assessment(data, student_state=None):
     docs_used = student_state.get("help_docs_used", []) or []
     activities_used = student_state.get("help_activities_used", []) or []
     media_used = student_state.get("help_media_used", []) or []
+    direct_answers = set(student_state.get("direct_answers_given", []) or [])
 
     doc_ids = {
         item.get("id") if isinstance(item, dict) else item
         for item in docs_used
+    }
+    activity_ids = {
+        item.get("id") for item in activities_used
+        if isinstance(item, dict)
+    }
+    media_ids = {
+        item.get("id") for item in media_used
+        if isinstance(item, dict)
     }
 
     def clamp(value, default=1):
@@ -1080,55 +1049,56 @@ def normalize_assessment(data, student_state=None):
             for part in subparts
             if isinstance(part, dict)
         ]
-
         cap = base_autonomy
 
-        if name == "Identifier et expliquer les manifestations de la réaction inflammatoire":
-            low = sum(v <= 2 for v in values)
-            if low >= 2:
-                cap = min(cap, 2)
+        if name == "Identifier la réaction inflammatoire et ses quatre signes":
+            # Les documents utilisés ensuite pour EXPLIQUER les mécanismes
+            # ne pénalisent jamais cette compétence d'identification.
+            return cap
+
+        if name == "Expliquer les manifestations de la réaction inflammatoire":
             if {
-                "INFLAMMATION_P1", "INFLAMMATION_P2",
-                "INFLAM_ROUGEUR", "INFLAM_CHALEUR",
-                "INFLAM_GONFLEMENT", "INFLAM_DOULEUR"
+                "INFLAM_PAGE2_ROUGEUR",
+                "INFLAM_THERMOGRAPHIE",
+                "INFLAM_PAGE2_GONFLEMENT",
+                "INFLAM_PAGE2_DOULEUR",
             } & doc_ids:
+                cap = min(cap, 2)
+            if {"ROUGEUR", "CHALEUR", "GONFLEMENT", "DOULEUR"} & direct_answers:
+                cap = min(cap, 1)
+            elif sum(v <= 2 for v in values) >= 2:
                 cap = min(cap, 2)
 
         elif name == "Expliquer le rôle des cellules sentinelles et des médiateurs chimiques":
-            if any(v <= 2 for v in values):
+            if {
+                "INFLAM_CELLULES_SENTINELLES",
+                "INFLAM_TABLEAU_MEDIATEURS",
+            } & doc_ids:
                 cap = min(cap, 2)
-            if {"INFLAMMATION_P1", "INFLAM_SENTINELLES"} & doc_ids:
-                cap = min(cap, 2)
+            if "SENTINELLES" in direct_answers:
+                cap = min(cap, 1)
 
         elif name == "Expliquer le rôle des leucocytes dans la défense de l'organisme":
-            # La compétence comporte le rôle général ET le recrutement vers la zone lésée.
-            if any(v <= 2 for v in values):
+            # L'indice étymologique pour retrouver le nom ne doit pas faire croire
+            # qu'un recrutement non questionné a été évalué.
+            if "LEUCOCYTES_NOM" in direct_answers:
                 cap = min(cap, 2)
-            if "INFLAMMATION_P2" in doc_ids:
+            elif values and any(v <= 2 for v in values):
                 cap = min(cap, 2)
 
         elif name == "Expliquer les étapes de la phagocytose":
-            low = sum(v <= 2 for v in values)
-            if low >= 2:
-                cap = min(cap, 2)
-
-            activity_ids = {
-                item.get("id") for item in activities_used
-                if isinstance(item, dict)
-            }
-            media_ids = {
-                item.get("id") for item in media_used
-                if isinstance(item, dict)
-            }
-
             if (
-                {"PHAGO_ETAPES", "PHAGO_ANNOTATION"} & doc_ids
-                or "PHAGO_ORDER" in activity_ids
+                "PHAGO_ORDER" in activity_ids
+                or "PHAGO_ANNOTATION" in doc_ids
                 or "PHAGO_VIDEO" in media_ids
             ):
                 cap = min(cap, 2)
+            if "PHAGO_NOM" in direct_answers:
+                cap = min(cap, 2)
 
         elif name == "Comprendre et utiliser le vocabulaire scientifique dans une communication écrite adaptée":
+            # Le lexique est un indice, mais cette compétence inclut aussi
+            # qualité du français, clarté et adaptation au rôle du médecin.
             if len(vocab_used) >= 3:
                 cap = min(cap, 2)
             elif len(vocab_used) >= 1:
@@ -1141,30 +1111,22 @@ def normalize_assessment(data, student_state=None):
             continue
 
         name = str(item.get("nom", "")).strip()
+        if name not in COMPETENCY_NAMES:
+            continue
+
         content_level = clamp(item.get("niveau_contenu", item.get("niveau", 1)))
         autonomy_level = clamp(item.get("autonomie", content_level), content_level)
+
         subparts = item.get("sous_parties", [])
         if not isinstance(subparts, list):
             subparts = []
 
-        autonomy_level = composite_cap(
-            name,
-            subparts,
-            autonomy_level,
-        )
-
-        # Règle déterministe : le niveau final ne dépasse jamais l'autonomie.
+        autonomy_level = composite_cap(name, subparts, autonomy_level)
         level = min(content_level, autonomy_level)
 
         justification = str(item.get("justification", "")).strip()
-
-        if autonomy_level <= 2 and justification:
-            lower = justification.lower()
-            if not any(word in lower for word in ("aide", "guid", "relance", "étay", "document")):
-                justification += (
-                    " L'élève a eu besoin d'un étayage important, "
-                    "ce qui limite le niveau d'autonomie."
-                )
+        if not justification:
+            justification = "Évaluation générée à partir des productions de l'élève."
 
         by_name[name] = {
             "nom": name,
@@ -1179,13 +1141,17 @@ def normalize_assessment(data, student_state=None):
         item = by_name.get(expected_name)
 
         if item is None:
+            # IMPORTANT : une erreur technique ne devient jamais une maîtrise insuffisante.
             item = {
                 "nom": expected_name,
-                "niveau": 1,
-                "niveau_contenu": 1,
-                "autonomie": 1,
+                "niveau": 0,
+                "niveau_contenu": 0,
+                "autonomie": 0,
                 "sous_parties": [],
-                "justification": "Évaluation automatique indisponible pour cette compétence.",
+                "justification": (
+                    "Non évalué : l'évaluation automatique n'a pas produit "
+                    "de résultat exploitable pour cette compétence."
+                ),
             }
 
         result["competences"].append(item)
@@ -1206,6 +1172,7 @@ def generate_assessment(history, student_state):
 
     activities_used = (student_state or {}).get("help_activities_used", []) or []
     media_used = (student_state or {}).get("help_media_used", []) or []
+    direct_answers = (student_state or {}).get("direct_answers_given", []) or []
 
     aid_trace = (
         "TRACE DES AIDES OUTILS :\n"
@@ -1216,6 +1183,8 @@ def generate_assessment(history, student_state):
         f"{', '.join(item.get('title', item.get('id', '')) if isinstance(item, dict) else str(item) for item in activities_used) if activities_used else 'aucune'}\n"
         f"- Supports vidéo : "
         f"{', '.join(item.get('title', item.get('id', '')) if isinstance(item, dict) else str(item) for item in media_used) if media_used else 'aucun'}\n"
+        f"- Réponses données directement par M. Dujardin en dernier recours : "
+        f"{', '.join(direct_answers) if direct_answers else 'aucune'}\n"
     )
 
     raw = call_openai(
@@ -1337,7 +1306,9 @@ def build_report_text(student_state, history, assessment):
     for comp in assessment["competences"]:
         level = comp["niveau"]
         lines.append(f"- {comp['nom']} : {LEVEL_LABELS[level]}")
-        if "autonomie" in comp:
+        if level == 0:
+            lines.append("  Cette compétence n'a pas été notée à cause d'un problème technique d'évaluation.")
+        if "autonomie" in comp and int(comp.get("autonomie", 0)) > 0:
             lines.append(
                 f"  Autonomie observée : niveau {comp['autonomie']} / 4"
             )
@@ -1351,7 +1322,7 @@ def build_report_text(student_state, history, assessment):
 
     fragile = [
         comp for comp in assessment["competences"]
-        if int(comp.get("niveau", 1)) <= 2
+        if int(comp.get("niveau", 0)) in (1, 2)
     ]
 
     if fragile:
@@ -1561,6 +1532,7 @@ def build_report_pdf(student_state, history, assessment):
     ]
 
     level_backgrounds = {
+        0: colors.HexColor("#EEEEEE"),  # non évalué
         1: colors.HexColor("#FDE2E2"),  # rouge
         2: colors.HexColor("#FFF4BF"),  # jaune
         3: colors.HexColor("#E1ECFA"),  # bleu
@@ -1573,7 +1545,10 @@ def build_report_pdf(student_state, history, assessment):
         level = int(comp["niveau"])
         row_levels.append(level)
 
-        level_text = LEVEL_LABELS[level].split("–", 1)[1].strip()
+        if level == 0:
+            level_text = "Problème technique"
+        else:
+            level_text = LEVEL_LABELS[level].split("–", 1)[1].strip()
 
         table_data.append(
             [
@@ -1582,7 +1557,11 @@ def build_report_pdf(student_state, history, assessment):
                     small_style,
                 ),
                 Paragraph(
-                    f"<b>Niveau {level}</b><br/>{escape(level_text)}",
+                    (
+                        f"<b>Non évalué</b><br/>{escape(level_text)}"
+                        if level == 0
+                        else f"<b>Niveau {level}</b><br/>{escape(level_text)}"
+                    ),
                     small_style,
                 ),
                 Paragraph(
@@ -1894,6 +1873,7 @@ def process_user_message(text):
         loaded_state.setdefault("active_help_video", None)
         loaded_state.setdefault("current_topic", None)
         loaded_state.setdefault("topic_blockages", {})
+        loaded_state.setdefault("direct_answers_given", [])
 
         st.session_state.student_state = loaded_state
         st.session_state.image_visible = data.get("image_visible", False)
@@ -2016,11 +1996,9 @@ def process_user_message(text):
         return
 
     # ---------- CONSULTATION ----------
-    if student_state.get("active_help_doc"):
-        student_state["active_help_doc"] = None
-    if student_state.get("active_help_video"):
-        student_state["active_help_video"] = None
-
+    # Les supports restent visibles pendant toute une séquence de remédiation.
+    # Ils ne sont fermés que lorsque l'élève produit une vraie tentative
+    # (et non un nouveau « je ne sais pas »).
     history.append({"role": "user", "content": text})
     current_topic = student_state.get("current_topic")
     normalized = text.lower()
@@ -2129,6 +2107,13 @@ def process_user_message(text):
                 autosave_current_session()
                 return
 
+    # Une réponse exploitable ferme maintenant les supports temporaires.
+    # Les « je ne sais pas » sont déjà sortis plus haut et conservent donc le document.
+    if student_state.get("active_help_doc"):
+        student_state["active_help_doc"] = None
+    if student_state.get("active_help_video"):
+        student_state["active_help_video"] = None
+
     used_doc_ids = {
         item.get("id") if isinstance(item, dict) else item
         for item in student_state.get("help_docs_used", [])
@@ -2172,6 +2157,29 @@ def process_user_message(text):
         requested_activity_id,
         requested_video_id,
     ) = strip_support_markers(reply)
+
+    # Garde-fou pédagogique :
+    # après l'évaluation du rôle des leucocytes, M. Dujardin doit faire
+    # RETROUVER le nom du mécanisme sans prononcer « phagocytose ».
+    previous_topic = current_topic
+    lower_reply = (reply or "").lower()
+
+    if (
+        previous_topic == "LEUCOCYTES_ROLE"
+        and (
+            "phagocytose" in lower_reply
+            or ("comment s'appelle" in lower_reply and "mécanisme" in lower_reply)
+            or ("comment appelle" in lower_reply and "mécanisme" in lower_reply)
+        )
+    ):
+        reply = (
+            "Certains leucocytes peuvent englober puis détruire les microbes. "
+            "Comment appelle-t-on ce mécanisme, docteur ?"
+        )
+        topic_marker = "PHAGO_NOM"
+        requested_doc_id = None
+        requested_activity_id = None
+        requested_video_id = None
 
     inferred_topic = infer_topic_from_reply(
         reply,
@@ -2405,7 +2413,11 @@ if active_activity == "PHAGO_ORDER":
             st.session_state.history.append({
                 "role": "assistant",
                 "content": (
-                    "Très bien docteur, vous avez retrouvé les quatre étapes et leur ordre. "
+                    "Très bien docteur, vous avez retrouvé les quatre étapes et leur ordre :\n\n"
+                    "1. **Reconnaissance et adhésion**\n"
+                    "2. **Ingestion**\n"
+                    "3. **Digestion**\n"
+                    "4. **Rejet des déchets**\n\n"
                     "Pouvez-vous maintenant m'expliquer avec vos propres mots "
                     "ce qui se passe au cours de ces quatre étapes ?"
                 ),
@@ -2419,36 +2431,81 @@ if active_activity == "PHAGO_ORDER":
             )
 
 active_doc_id = st.session_state.student_state.get("active_help_doc")
-
-if active_doc_id and active_doc_id in HELP_DOCUMENTS:
-    help_doc = HELP_DOCUMENTS[active_doc_id]
-    st.markdown("### 📚 Document de classe à consulter")
-    st.info(
-        f"**{help_doc['title']}**\n\n"
-        f"{help_doc['description']}\n\n"
-        "Ce document disparaîtra dès que vous enverrez votre prochaine réponse "
-        "et ne pourra plus être rouvert pendant cette consultation."
-    )
-    help_path = help_doc.get("path")
-    if help_path and os.path.exists(help_path):
-        st.image(help_path, use_container_width=True)
-    else:
-        st.error(f"Support introuvable : {help_path}. Vérifiez le dossier assets/ du dépôt GitHub.")
-
 active_video = st.session_state.student_state.get("active_help_video")
 
-if active_video == "PHAGO_VIDEO":
-    st.markdown("### 🎬 Animation de la phagocytose")
+# Cas particulier phagocytose : schéma annoté et animation côte à côte.
+if (
+    active_doc_id == "PHAGO_ANNOTATION"
+    and active_video == "PHAGO_VIDEO"
+):
+    st.markdown("### 📚 Supports de classe à consulter")
     st.info(
-        "Observez attentivement le mouvement du phagocyte et mettez-le en relation "
-        "avec le document annoté. Les aides disparaîtront après votre prochaine réponse."
+        "Utilisez ensemble le schéma annoté et l'animation pour construire "
+        "votre explication avec vos propres mots. "
+        "La vidéo peut être passée en plein écran."
     )
-    if os.path.exists(PHAGO_VIDEO_PATH):
-        video_col, _ = st.columns([0.72, 0.28])
-        with video_col:
+
+    left_col, right_col = st.columns(2, gap="large")
+
+    with left_col:
+        help_doc = HELP_DOCUMENTS["PHAGO_ANNOTATION"]
+        st.markdown(f"**{help_doc['title']}**")
+        st.caption(help_doc["description"])
+        help_path = help_doc.get("path")
+        if help_path and os.path.exists(help_path):
+            st.image(help_path, use_container_width=True)
+        else:
+            st.error(
+                f"Support introuvable : {help_path}. "
+                "Vérifiez le dossier assets/ du dépôt GitHub."
+            )
+
+    with right_col:
+        st.markdown("**Animation de la phagocytose**")
+        st.caption(
+            "Observez le mouvement du phagocyte et mettez-le en relation "
+            "avec le vocabulaire du schéma."
+        )
+        if os.path.exists(PHAGO_VIDEO_PATH):
             st.video(PHAGO_VIDEO_PATH)
-    else:
-        st.error("La vidéo phagocytose_animation.mp4 est introuvable dans assets/.")
+        else:
+            st.error(
+                "La vidéo phagocytose_animation.mp4 est introuvable dans assets/."
+            )
+
+else:
+    if active_doc_id and active_doc_id in HELP_DOCUMENTS:
+        help_doc = HELP_DOCUMENTS[active_doc_id]
+        st.markdown("### 📚 Document de classe à consulter")
+        st.info(
+            f"**{help_doc['title']}**\n\n"
+            f"{help_doc['description']}\n\n"
+            "Ce document reste disponible pendant cette étape de remédiation. "
+            "Il disparaîtra lorsque vous aurez formulé une réponse permettant de poursuivre."
+        )
+        help_path = help_doc.get("path")
+        if help_path and os.path.exists(help_path):
+            st.image(help_path, use_container_width=True)
+        else:
+            st.error(
+                f"Support introuvable : {help_path}. "
+                "Vérifiez le dossier assets/ du dépôt GitHub."
+            )
+
+    if active_video == "PHAGO_VIDEO":
+        st.markdown("### 🎬 Animation de la phagocytose")
+        st.info(
+            "Observez attentivement le mouvement du phagocyte et mettez-le en relation "
+            "avec le document annoté."
+        )
+        if os.path.exists(PHAGO_VIDEO_PATH):
+            video_col, _ = st.columns([0.72, 0.28])
+            with video_col:
+                st.video(PHAGO_VIDEO_PATH)
+        else:
+            st.error(
+                "La vidéo phagocytose_animation.mp4 est introuvable dans assets/."
+            )
 
 # ---------- ZONE DE RÉPONSE INLINE ----------
 # IMPORTANT : on n'utilise PAS st.chat_input.
@@ -2641,7 +2698,9 @@ if st.session_state.report_text:
         for comp in st.session_state.assessment["competences"]:
             level = comp["niveau"]
 
-            if level == 1:
+            if level == 0:
+                icon = "⚪"
+            elif level == 1:
                 icon = "🔴"
             elif level == 2:
                 icon = "🟡"
@@ -2662,7 +2721,7 @@ if st.session_state.report_text:
 
         fragile = [
             comp for comp in st.session_state.assessment["competences"]
-            if int(comp.get("niveau", 1)) <= 2
+            if int(comp.get("niveau", 0)) in (1, 2)
         ]
 
         st.markdown("### 🎯 Pour progresser")

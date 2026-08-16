@@ -23,7 +23,7 @@ st.set_page_config(
     layout="wide",
 )
 
-APP_VERSION = "M. Dujardin V3.4 - accès protégé"
+APP_VERSION = "M. Dujardin V3.5 - différenciation renforcée"
 MODEL_NAME = "gpt-4o-mini"
 IMAGE_PATH = "blessure_main.png"
 
@@ -199,17 +199,29 @@ GESTION DES RÉPONSES GLOBALES
 
 DIFFÉRENCIATION / AIDE PROGRESSIVE
 - D'abord, demande ce que l'élève pense.
+- Si la réponse est correcte et suffisamment complète pour le niveau 3e :
+  1. valide ce qui est juste ;
+  2. poursuis vers l'étape suivante sans exiger du vocabulaire plus expert.
 - Si la réponse est correcte mais incomplète :
-  1. valide précisément ce qui est juste ;
-  2. demande seulement l'élément manquant.
-- Si la réponse est fragile :
-  1. donne une relance ciblée ;
-  2. puis, si besoin, un indice court ;
-  3. puis un second indice plus guidé.
-- Si l'élève dit « je ne sais pas », ne donne PAS immédiatement la réponse complète.
-- Ne donne une explication complète qu'après plusieurs essais infructueux
+  1. valide UNIQUEMENT ce que l'élève a réellement dit ;
+  2. NE DONNE PAS immédiatement le terme scientifique ou le mécanisme manquant ;
+  3. pose d'abord UNE question de relance ciblée sur l'élément manquant.
+- Si l'élève ne trouve pas après cette relance :
+  1. donne un premier indice court, sans fournir la réponse ;
+  2. laisse l'élève essayer à nouveau.
+- Si l'élève ne trouve toujours pas :
+  1. donne un second indice plus guidé ;
+  2. laisse encore l'élève essayer.
+- Ne donne l'explication complète qu'après plusieurs essais infructueux
   ou si l'élève la demande explicitement.
+- Si l'élève dit « je ne sais pas », commence par un indice : ne donne jamais immédiatement la réponse complète.
 - N'exige pas un vocabulaire parfait : l'objectif est la compréhension au niveau 3e.
+- Exemple : si l'élève dit que du liquide sort des petits vaisseaux et s'accumule dans les tissus,
+  demande d'abord ce qui pourrait permettre au liquide de traverser la paroi des capillaires.
+  Ne donne pas immédiatement « augmentation de la perméabilité » ou « œdème ».
+- Exemple : si l'élève explique que l'œdème appuie sur des récepteurs de la douleur,
+  ne donne pas immédiatement le rôle des médiateurs chimiques ; demande d'abord s'il existe
+  un autre facteur pouvant stimuler ces récepteurs.
 
 TRÈS IMPORTANT
 - Même si l'élève parle des globules blancs ou de la phagocytose avant la douleur,
@@ -332,14 +344,26 @@ explique avec aisance et dépasse les attentes ordinaires de 3e.
 5. Communiquer à l'écrit en français dans un registre adapté au rôle de médecin
 
 RÈGLES D'ÉVALUATION SCIENTIFIQUE
-- Évalue uniquement ce que l'élève a réellement écrit.
+- Évalue STRICTEMENT ce que l'élève a réellement écrit dans ses propres messages.
+- Les explications, reformulations, mots scientifiques, corrections ou compléments donnés par M. Dujardin
+  ne doivent JAMAIS être attribués à l'élève et ne doivent JAMAIS augmenter son niveau.
+- Le dialogue complet sert uniquement à mesurer le degré d'aide et d'étayage reçu.
 - Une notion partiellement correcte ne doit pas être traitée comme absente.
 - Ne sois ni trop généreux, ni excessivement sévère.
 - Quelques fautes de vocabulaire ou formulations maladroites sont compatibles avec le niveau 3
   si le mécanisme est globalement compris.
-- Le niveau 4 suppose une réponse particulièrement précise, complète et autonome.
+- Le niveau 3 correspond au niveau attendu en 3e : l'élève comprend le mécanisme essentiel
+  et sait l'expliquer de façon autonome, même s'il ne cite pas tous les termes spécialisés.
+- Ne baisse PAS au niveau 2 uniquement parce que l'élève ne cite pas « histamine », « chimiokines »,
+  « diapédèse », « phagosome » ou un autre terme spécialisé si le mécanisme attendu est correctement compris.
+- Pour les cellules sentinelles / médiateurs chimiques, le niveau 3 est justifié si l'élève explique de lui-même
+  que les cellules sentinelles détectent les microbes, libèrent des substances chimiques et que ces substances
+  déclenchent/organisent la réaction inflammatoire ou attirent des cellules de défense.
+- Le niveau 4 suppose une réponse particulièrement précise, complète et autonome,
+  avec un vocabulaire scientifique riche et une mobilisation allant au-delà des attentes ordinaires de 3e.
 - Le niveau 1 doit être réservé aux bases réellement non comprises ou absentes.
-- Le niveau 2 correspond à une compréhension partielle ou fortement étayée.
+- Le niveau 2 correspond à une compréhension partielle, fragile ou obtenue grâce à un étayage important.
+- Dans chaque justification, cite seulement des éléments réellement formulés par l'élève.
 
 LANGUE FRANÇAISE / REGISTRE DU MÉDECIN
 - N'évalue pas seulement l'orthographe.
@@ -520,6 +544,25 @@ def build_dialogue_text(history):
 
     return "\n".join(lines)
 
+
+def build_student_only_text(history):
+    """Source principale pour noter : uniquement les productions de l'élève."""
+    dialogue = get_consultation_dialogue(history)
+
+    student_messages = [
+        msg["content"]
+        for msg in dialogue
+        if msg.get("role") == "user"
+    ]
+
+    if not student_messages:
+        return "Aucune production de l'élève."
+
+    return "\n".join(
+        f"Réponse élève {index} : {content}"
+        for index, content in enumerate(student_messages, start=1)
+    )
+
 # ============================================================
 # ÉVALUATION
 # ============================================================
@@ -575,6 +618,7 @@ def normalize_assessment(data):
 
 def generate_assessment(history):
     dialogue_text = build_dialogue_text(history)
+    student_only_text = build_student_only_text(history)
 
     raw = call_openai(
         [
@@ -582,7 +626,12 @@ def generate_assessment(history):
             {
                 "role": "user",
                 "content": (
-                    "Voici le dialogue complet de la téléconsultation :\n\n"
+                    "SOURCE PRINCIPALE POUR NOTER : PRODUCTIONS DE L'ÉLÈVE UNIQUEMENT.\n"
+                    "Attribue les acquis uniquement à partir de cette partie :\n\n"
+                    f"{student_only_text}\n\n"
+                    "CONTEXTE SECONDAIRE : DIALOGUE COMPLET.\n"
+                    "Utilise cette partie seulement pour mesurer les relances et l'aide de M. Dujardin.\n"
+                    "N'attribue jamais à l'élève une information formulée uniquement par M. Dujardin.\n\n"
                     f"{dialogue_text}"
                 ),
             },
@@ -933,6 +982,34 @@ def reset_state(message=None, keep_restart_count=False):
 if "history" not in st.session_state:
     reset_state()
 
+
+def restart_consultation():
+    """Recommence depuis le début en conservant le code de sauvegarde actif."""
+    current_count = int(
+        st.session_state.student_state.get("restart_count", 0)
+    ) + 1
+    active_code = st.session_state.get("save_code")
+
+    st.session_state.history = [
+        {
+            "role": "assistant",
+            "content": (
+                "Consultation recommencée depuis le début. "
+                "Bonjour ! Quels sont vos prénoms ?"
+            ),
+        }
+    ]
+    st.session_state.student_state = make_initial_student_state(current_count)
+    st.session_state.image_visible = False
+    st.session_state.report_text = None
+    st.session_state.report_pdf = None
+    st.session_state.assessment = None
+    st.session_state.save_code = active_code
+    st.session_state.restart_confirm = False
+
+    autosave_current_session()
+
+
 # ============================================================
 # LOGIQUE DU CHAT
 # ============================================================
@@ -948,28 +1025,9 @@ def process_user_message(text):
     student_state = st.session_state.student_state
 
     # ---------- RECOMMENCER ----------
+    # Compatibilité avec l'ancienne commande texte.
     if upper == "RECOMMENCER":
-        new_count = int(student_state.get("restart_count", 0)) + 1
-        active_code = st.session_state.get("save_code")
-
-        st.session_state.history = [
-            {
-                "role": "assistant",
-                "content": (
-                    "Consultation recommencée depuis le début. "
-                    "Bonjour ! Quels sont vos prénoms ?"
-                ),
-            }
-        ]
-
-        st.session_state.student_state = make_initial_student_state(new_count)
-        st.session_state.image_visible = False
-        st.session_state.report_text = None
-        st.session_state.report_pdf = None
-        st.session_state.assessment = None
-        st.session_state.save_code = active_code
-
-        autosave_current_session()
+        restart_consultation()
         return
 
     # ---------- REPRISE ----------
@@ -1189,9 +1247,41 @@ def process_user_message(text):
 st.title("🤒 Chatbot M. Dujardin – Téléconsultation SVT (3e)")
 with st.sidebar:
     st.markdown("### Accès")
+
     if st.button("🔒 Quitter l'accès protégé", use_container_width=True):
         st.session_state.access_granted = False
         st.rerun()
+
+    if not st.session_state.get("restart_confirm", False):
+        if st.button("🔄 Recommencer la consultation", use_container_width=True):
+            st.session_state.restart_confirm = True
+            st.rerun()
+    else:
+        st.warning(
+            "Cette action effacera la consultation en cours et recommencera depuis le début."
+        )
+
+        confirm_col, cancel_col = st.columns(2)
+
+        with confirm_col:
+            if st.button(
+                "✅ Confirmer",
+                use_container_width=True,
+                type="primary",
+                key="confirm_restart_sidebar",
+            ):
+                restart_consultation()
+                st.rerun()
+
+        with cancel_col:
+            if st.button(
+                "Annuler",
+                use_container_width=True,
+                key="cancel_restart_sidebar",
+            ):
+                st.session_state.restart_confirm = False
+                st.rerun()
+
 st.caption("L'élève joue le rôle du médecin. M. Dujardin est le patient.")
 st.caption(f"Version : {APP_VERSION}")
 
@@ -1200,7 +1290,7 @@ with st.expander("ℹ️ Consignes et commandes", expanded=False):
         """
 1. Indiquez uniquement vos **prénoms**, puis votre classe.
 2. Répondez aux questions de M. Dujardin comme un médecin.
-3. Le bouton **Recommencer** permet de reprendre la téléconsultation depuis le début.
+3. Le bouton **Recommencer la consultation**, dans la barre latérale, permet de repartir depuis le début après confirmation.
 4. Le bilan final ne peut être généré qu'une fois la téléconsultation réellement terminée.
 5. Pour interrompre une séance et la reprendre plus tard, écrivez **SAUVEGARDE** dans la zone de réponse puis conservez le code obtenu.
 6. À la séance suivante, écrivez **REPRISE** suivi de votre code, par exemple **REPRISE FE0A2F**.
@@ -1236,12 +1326,9 @@ for message in st.session_state.history:
 
 # ---------- ZONE DE RÉPONSE INLINE ----------
 # IMPORTANT : on n'utilise PAS st.chat_input.
-# Le formulaire reste exactement à cet endroit, sous la dernière question.
+# Le formulaire reste exactement sous la dernière question.
 
 if not st.session_state.student_state.get("finished", False):
-    # La saisie reste dans le flux du dialogue.
-    # Aucun gros bouton "Envoyer" n'est affiché :
-    # l'élève valide simplement sa réponse avec la touche Entrée.
     st.markdown(
         """
         <style>
@@ -1262,56 +1349,13 @@ if not st.session_state.student_state.get("finished", False):
             label_visibility="collapsed",
         )
 
-        # Streamlit exige un submit_button dans un formulaire.
-        # Il est volontairement masqué par le CSS ci-dessus :
-        # la touche Entrée déclenche l'envoi.
         send_clicked = st.form_submit_button("Envoyer")
 
     if send_clicked and user_input.strip():
         process_user_message(user_input)
         st.rerun()
 
-    # Pendant la consultation, le bouton Recommencer se trouve sous la zone de réponse.
-    if st.button(
-        "🔄 Recommencer",
-        use_container_width=True,
-    ):
-        current_count = (
-            int(
-                st.session_state.student_state.get(
-                    "restart_count",
-                    0,
-                )
-            )
-            + 1
-        )
-
-        active_code = st.session_state.get("save_code")
-
-        st.session_state.history = [
-            {
-                "role": "assistant",
-                "content": (
-                    "Consultation recommencée depuis le début. "
-                    "Bonjour ! Quels sont vos prénoms ?"
-                ),
-            }
-        ]
-
-        st.session_state.student_state = make_initial_student_state(
-            current_count
-        )
-        st.session_state.image_visible = False
-        st.session_state.report_text = None
-        st.session_state.report_pdf = None
-        st.session_state.assessment = None
-        st.session_state.save_code = active_code
-
-        autosave_current_session()
-        st.rerun()
-
 else:
-    # À la fin, la zone de réponse disparaît.
     st.success(
         "✅ La téléconsultation est terminée. "
         "Vous pouvez maintenant générer votre bilan et le télécharger en PDF."
@@ -1350,45 +1394,6 @@ else:
                 st.error(
                     f"Impossible de générer le bilan : {exc}"
                 )
-
-    if st.button(
-        "🔄 Recommencer",
-        use_container_width=True,
-        key="restart_after_finish",
-    ):
-        current_count = (
-            int(
-                st.session_state.student_state.get(
-                    "restart_count",
-                    0,
-                )
-            )
-            + 1
-        )
-
-        active_code = st.session_state.get("save_code")
-
-        st.session_state.history = [
-            {
-                "role": "assistant",
-                "content": (
-                    "Consultation recommencée depuis le début. "
-                    "Bonjour ! Quels sont vos prénoms ?"
-                ),
-            }
-        ]
-
-        st.session_state.student_state = make_initial_student_state(
-            current_count
-        )
-        st.session_state.image_visible = False
-        st.session_state.report_text = None
-        st.session_state.report_pdf = None
-        st.session_state.assessment = None
-        st.session_state.save_code = active_code
-
-        autosave_current_session()
-        st.rerun()
 
 st.divider()
 

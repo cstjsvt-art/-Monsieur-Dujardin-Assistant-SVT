@@ -1743,7 +1743,7 @@ def reset_state(message=None, keep_restart_count=False):
     st.session_state.history = [
         {
             "role": "assistant",
-            "content": message or "Bonjour ! Quels sont vos prénoms ?",
+            "content": message or "Bonjour ! Quel est votre prénom / Quels sont vos prénoms ?",
         }
     ]
 
@@ -1772,7 +1772,7 @@ def restart_consultation():
             "role": "assistant",
             "content": (
                 "Consultation recommencée depuis le début. "
-                "Bonjour ! Quels sont vos prénoms ?"
+                "Bonjour ! Quel est votre prénom / Quels sont vos prénoms ?"
             ),
         }
     ]
@@ -1852,7 +1852,7 @@ def process_user_message(text):
             [
                 {
                     "role": "assistant",
-                    "content": "Bonjour ! Quels sont vos prénoms ?",
+                    "content": "Bonjour ! Quel est votre prénom / Quels sont vos prénoms ?",
                 }
             ],
         )

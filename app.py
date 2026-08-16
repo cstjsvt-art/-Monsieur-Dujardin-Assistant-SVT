@@ -27,7 +27,7 @@ st.set_page_config(
     layout="wide",
 )
 
-APP_VERSION = "M. Dujardin V4.1 - remédiation persistante et bilan fiabilisé"
+APP_VERSION = "M. Dujardin V4.2 - transitions de thèmes sécurisées"
 MODEL_NAME = "gpt-4o-mini"
 ASSET_DIR = "assets"
 IMAGE_PATH = os.path.join(ASSET_DIR, "blessure_main.png")
@@ -211,46 +211,170 @@ def register_help_video(student_state):
 
 
 def infer_topic_from_reply(reply, current_topic=None):
+    """
+    Détermine le thème de la DERNIÈRE question réellement posée par M. Dujardin.
+
+    Important :
+    une validation peut encore contenir le mot du thème précédent
+    (« ... ce qui provoque la chaleur ») juste avant une nouvelle question
+    (« Pourquoi ma main est-elle enflée ? »).
+    On privilégie donc les formulations explicites de la nouvelle question
+    puis, seulement en dernier recours, le mot-clé situé le plus tard.
+    """
     lower = (reply or "").lower()
 
-    if (("comment s'appellent" in lower and "étape" in lower)
+    # ------------------------------------------------------------
+    # PHAGOCYTOSE : états fins
+    # ------------------------------------------------------------
+    if (
+        ("comment s'appellent" in lower and "étape" in lower)
         or ("dans quel ordre" in lower and "étape" in lower)
-        or ("quelles étapes" in lower and "ordre" in lower)):
+        or ("quelles étapes" in lower and "ordre" in lower)
+    ):
         return "PHAGO_ETAPES"
-    if "combien" in lower and "étape" in lower and ("mécanisme" in lower or "phagocyt" in lower):
+
+    if (
+        "combien" in lower
+        and "étape" in lower
+        and ("mécanisme" in lower or "phagocyt" in lower)
+    ):
         return "PHAGO_NOMBRE"
-    if (("comment appelle" in lower or "comment s'appelle" in lower or "quel est le nom" in lower)
-        and "mécanisme" in lower and ("microbe" in lower or "leucocyte" in lower or "phagocyt" in lower)):
+
+    if (
+        (
+            "comment appelle" in lower
+            or "comment s'appelle" in lower
+            or "quel est le nom" in lower
+        )
+        and "mécanisme" in lower
+        and ("microbe" in lower or "leucocyte" in lower or "phagocyt" in lower)
+    ):
         return "PHAGO_NOM"
-    if ("explique" in lower or "expliquer" in lower) and "étape" in lower and ("phagocyt" in lower or "mécanisme" in lower):
+
+    if (
+        ("explique" in lower or "expliquer" in lower)
+        and "étape" in lower
+        and ("phagocyt" in lower or "mécanisme" in lower)
+    ):
         return "PHAGO_EXPLICATION"
 
+    # ------------------------------------------------------------
+    # DÉBUT DE CONSULTATION
+    # ------------------------------------------------------------
     if "qu'est-ce qui arrive à ma main" in lower:
         return "IDENTIFICATION"
+
     if "quatre signes" in lower or "4 signes" in lower:
         return "SIGNES"
 
-    if (("comment s'appellent" in lower or "comment appelle" in lower)
-        and ("cellules de défense" in lower or "globules blancs" in lower)):
+    # ------------------------------------------------------------
+    # LEUCOCYTES
+    # ------------------------------------------------------------
+    if (
+        ("comment s'appellent" in lower or "comment appelle" in lower)
+        and ("cellules de défense" in lower or "globules blancs" in lower)
+    ):
         return "LEUCOCYTES_NOM"
-    if (("quel rôle" in lower or "que font" in lower or "à quoi servent" in lower)
-        and ("leucocyte" in lower or "cellules de défense" in lower or "globules blancs" in lower)):
+
+    if (
+        ("quel rôle" in lower or "que font" in lower or "à quoi servent" in lower)
+        and ("leucocyte" in lower or "cellules de défense" in lower or "globules blancs" in lower)
+    ):
         return "LEUCOCYTES_ROLE"
 
+    # ------------------------------------------------------------
+    # TRANSITIONS EXPLICITES ENTRE LES MANIFESTATIONS
+    # ------------------------------------------------------------
+    # Ces tests passent AVANT les mots-clés généraux afin que
+    # « ... provoque la chaleur. Pourquoi ma main est-elle enflée ? »
+    # soit bien classé GONFLEMENT et non CHALEUR.
+    explicit_patterns = [
+        (
+            "GONFLEMENT",
+            [
+                "pourquoi ma main est enflée",
+                "pourquoi ma main est-elle enflée",
+                "pourquoi ma main est gonflée",
+                "pourquoi ma main est-elle gonflée",
+                "ce qui cause le gonflement",
+                "qu'est-ce qui cause le gonflement",
+                "qu'est-ce qui provoque le gonflement",
+            ],
+        ),
+        (
+            "DOULEUR",
+            [
+                "pourquoi ma main me fait mal",
+                "ce qui cause la douleur",
+                "qu'est-ce qui cause la douleur",
+                "qu'est-ce qui peut causer la douleur",
+                "qu'est-ce qui provoque la douleur",
+            ],
+        ),
+        (
+            "CHALEUR",
+            [
+                "pourquoi ma main est chaude",
+                "pourquoi ma main est-elle chaude",
+                "pourquoi ma main est plus chaude",
+                "pourquoi ma main est-elle plus chaude",
+                "ce qui cause la chaleur",
+                "qu'est-ce qui provoque la chaleur",
+            ],
+        ),
+        (
+            "ROUGEUR",
+            [
+                "ce qui cause la rougeur",
+                "qu'est-ce qui cause la rougeur",
+                "qu'est-ce qui provoque la rougeur",
+                "pourquoi ma main est rouge",
+                "pourquoi ma main est-elle rouge",
+            ],
+        ),
+        (
+            "SENTINELLES",
+            [
+                "cellules sentinelles",
+                "leur rôle dans cette réaction inflammatoire",
+            ],
+        ),
+    ]
+
+    for topic, patterns in explicit_patterns:
+        if any(pattern in lower for pattern in patterns):
+            # Pour les cellules sentinelles, on évite de voler la priorité
+            # à une question ultérieure sur les leucocytes ou la phagocytose,
+            # déjà traitées plus haut.
+            return topic
+
+    # ------------------------------------------------------------
+    # DERNIER RECOURS : mot-clé situé le plus tard dans le message
+    # ------------------------------------------------------------
     topic_keywords = {
         "ROUGEUR": ["rougeur", "rouge"],
         "CHALEUR": ["chaleur", "chaude", "plus chaude"],
-        "GONFLEMENT": ["gonflement", "gonflée", "gonflé"],
+        "GONFLEMENT": [
+            "gonflement",
+            "gonflée",
+            "gonflé",
+            "enflée",
+            "enflé",
+            "enflement",
+        ],
         "DOULEUR": ["douleur", "douloureuse", "mal"],
         "SENTINELLES": ["cellules sentinelles", "cellule sentinelle"],
     }
 
-    best_topic, best_position = None, -1
+    best_topic = None
+    best_position = -1
+
     for topic, keywords in topic_keywords.items():
         for keyword in keywords:
             pos = lower.rfind(keyword)
             if pos > best_position:
-                best_position, best_topic = pos, topic
+                best_position = pos
+                best_topic = topic
 
     return best_topic if best_topic is not None else current_topic
 
@@ -2128,6 +2252,8 @@ def process_user_message(text):
         "\n\nÉTAT PILOTÉ PAR L'APPLICATION : "
         f"thème actuel = {current_topic or 'non défini'} ; "
         f"blocages explicites sur ce thème = {current_blockages}. "
+        "La question en cours appartient exclusivement à ce thème : "
+        "ne reviens jamais à la notion précédente. "
         "Respecte strictement ce thème et ne donne pas une réponse complète "
         "à la place de l'élève. "
         "\nDOCUMENTS DÉJÀ CONSULTÉS ET DONC INTERDITS À ROUVRIR : "
@@ -2186,13 +2312,24 @@ def process_user_message(text):
         student_state.get("current_topic"),
     )
 
-    # Le texte réellement affiché prime sur le marqueur du modèle :
-    # cela évite qu'une transition vers la douleur conserve par erreur
-    # l'ancien état « gonflement ».
-    if inferred_topic:
-        student_state["current_topic"] = inferred_topic
-    elif topic_marker:
-        student_state["current_topic"] = topic_marker
+    # Le texte réellement affiché prime sur le marqueur du modèle.
+    # Si M. Dujardin vient de passer à une NOUVELLE notion, on met
+    # immédiatement l'état interne sur cette notion avant la réponse suivante.
+    next_topic = inferred_topic or topic_marker
+
+    if next_topic:
+        previous_state_topic = student_state.get("current_topic")
+
+        if next_topic != previous_state_topic:
+            student_state["current_topic"] = next_topic
+            student_state.setdefault("topic_blockages", {}).setdefault(next_topic, 0)
+
+            # Un support de la notion précédente ne doit pas rester ouvert
+            # après une vraie transition pédagogique.
+            student_state["active_help_doc"] = None
+            student_state["active_help_video"] = None
+        else:
+            student_state["current_topic"] = next_topic
 
     if requested_doc_id:
         registered = register_help_document(student_state, requested_doc_id)

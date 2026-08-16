@@ -1,4 +1,4 @@
-import os
+mport os
 import uuid
 import json
 import base64
@@ -25,7 +25,7 @@ st.set_page_config(
     layout="wide",
 )
 
-APP_VERSION = "M. Dujardin V3.6 - mémoire formative"
+APP_VERSION = "M. Dujardin V3.7 - évaluation de l’autonomie"
 MODEL_NAME = "gpt-4o-mini"
 IMAGE_PATH = "blessure_main.png"
 
@@ -393,42 +393,76 @@ LANGUE FRANÇAISE / REGISTRE DU MÉDECIN
   des insultes, du langage SMS ou des réponses extrêmement relâchées doivent faire baisser le niveau.
 - Le niveau 4 suppose une expression particulièrement claire, structurée et professionnelle pour un élève de 3e.
 
-PRISE EN COMPTE DE L'AIDE
+PRISE EN COMPTE DE L'AIDE — RÈGLE OBLIGATOIRE
 Le dialogue contient les relances et indices de M. Dujardin.
-- Une réponse obtenue seulement après beaucoup d'étayage peut correspondre au niveau 2.
-- Une réponse trouvée avec une petite relance peut rester au niveau 3.
-- Le niveau 4 suppose une forte autonomie.
-- Pour la phagocytose, distingue le mot produit spontanément, retrouvé après relance, ou finalement donné par M. Dujardin.
-- Si M. Dujardin a dû donner le mot « phagocytose », ne le présente jamais comme une restitution autonome.
-- La justification doit signaler une aide importante afin que le rapport serve à préparer la remédiation.
+Tu dois distinguer DEUX choses pour chaque compétence :
+1. le niveau de compréhension scientifique atteint ;
+2. le niveau d'autonomie avec lequel l'élève y est arrivé.
 
-RENVOIE UNIQUEMENT un objet JSON valide, sans markdown, sans texte avant ou après :
+ÉCHELLE D'AUTONOMIE À APPLIQUER STRICTEMENT
+4 = réponse spontanée, complète et précise, sans aide substantielle.
+3 = réponse globalement autonome, éventuellement après une petite relance ou une demande de précision.
+2 = réponse reconstruite avec plusieurs relances, indices, questions guidées ou un guidage étape par étape.
+1 = l'élève ne parvient pas à expliquer la notion ; l'essentiel de la réponse est fourni par M. Dujardin.
+
+RÈGLE DE PLAFONNEMENT
+- Le niveau final d'une compétence ne peut JAMAIS dépasser le niveau d'autonomie.
+- Donc :
+  * autonomie 4 -> niveau final maximum 4 ;
+  * autonomie 3 -> niveau final maximum 3 ;
+  * autonomie 2 -> niveau final maximum 2 ;
+  * autonomie 1 -> niveau final maximum 1.
+- Un élève qui finit par donner toutes les bonnes réponses après un guidage étape par étape reste au maximum au niveau 2.
+- Un élève qui dit « je ne sais pas » puis réussit grâce à plusieurs indices est au maximum au niveau 2 pour la notion concernée.
+- Une petite relance ponctuelle n'empêche pas le niveau 3.
+- Le niveau 4 suppose une réponse spontanée, complète, précise et autonome.
+
+CAS PARTICULIER DE LA PHAGOCYTOSE
+- Distingue le mot « phagocytose » produit spontanément, retrouvé après relance, ou finalement donné par M. Dujardin.
+- Si M. Dujardin a dû donner le mot « phagocytose », ne le présente jamais comme une restitution autonome.
+- Si les étapes sont reconstruites une à une grâce aux questions de M. Dujardin, l'autonomie vaut 2 au maximum, même si les réponses finales sont scientifiquement justes.
+- La justification doit signaler l'aide reçue lorsqu'elle est importante afin que le rapport serve à préparer la remédiation.
+
+RENVOIE UNIQUEMENT un objet JSON valide, sans markdown, sans texte avant ou après.
+
+Pour chaque compétence :
+- "niveau_contenu" = qualité scientifique de ce que l'élève a finalement réussi à exprimer ;
+- "autonomie" = degré d'autonomie observé selon l'échelle ci-dessus ;
+- le programme calculera ensuite automatiquement le niveau final comme le MINIMUM entre niveau_contenu et autonomie.
+- La justification doit préciser brièvement si une aide, une relance ou un guidage important a été nécessaire.
+
+Objet JSON attendu :
 
 {
   "competences": [
     {
       "nom": "Expliquer les manifestations de la réaction inflammatoire",
-      "niveau": 3,
+      "niveau_contenu": 3,
+      "autonomie": 3,
       "justification": "..."
     },
     {
       "nom": "Expliquer le rôle des cellules sentinelles et des médiateurs chimiques",
-      "niveau": 2,
+      "niveau_contenu": 3,
+      "autonomie": 2,
       "justification": "..."
     },
     {
       "nom": "Expliquer le rôle des leucocytes dans la défense de l'organisme",
-      "niveau": 3,
+      "niveau_contenu": 3,
+      "autonomie": 3,
       "justification": "..."
     },
     {
       "nom": "Expliquer les étapes de la phagocytose",
-      "niveau": 4,
+      "niveau_contenu": 4,
+      "autonomie": 2,
       "justification": "..."
     },
     {
       "nom": "Communiquer à l'écrit en français dans un registre adapté au rôle de médecin",
-      "niveau": 3,
+      "niveau_contenu": 3,
+      "autonomie": 3,
       "justification": "..."
     }
   ],
@@ -631,16 +665,37 @@ def normalize_assessment(data):
         name = str(item.get("nom", "")).strip()
 
         try:
-            level = int(item.get("niveau", 1))
+            content_level = int(
+                item.get("niveau_contenu", item.get("niveau", 1))
+            )
         except Exception:
-            level = 1
+            content_level = 1
 
-        level = min(4, max(1, level))
+        try:
+            autonomy_level = int(item.get("autonomie", content_level))
+        except Exception:
+            autonomy_level = content_level
+
+        content_level = min(4, max(1, content_level))
+        autonomy_level = min(4, max(1, autonomy_level))
+
+        # Règle déterministe : le niveau final ne peut jamais dépasser l'autonomie.
+        level = min(content_level, autonomy_level)
+
         justification = str(item.get("justification", "")).strip()
+
+        if autonomy_level <= 2 and justification:
+            if "aide" not in justification.lower() and "guid" not in justification.lower() and "relance" not in justification.lower() and "étay" not in justification.lower():
+                justification += (
+                    " L'élève a eu besoin d'un étayage important, "
+                    "ce qui limite le niveau d'autonomie."
+                )
 
         by_name[name] = {
             "nom": name,
             "niveau": level,
+            "niveau_contenu": content_level,
+            "autonomie": autonomy_level,
             "justification": justification,
         }
 
@@ -678,8 +733,12 @@ def generate_assessment(history):
                     "Attribue les acquis uniquement à partir de cette partie :\n\n"
                     f"{student_only_text}\n\n"
                     "CONTEXTE SECONDAIRE : DIALOGUE COMPLET.\n"
-                    "Utilise cette partie seulement pour mesurer les relances et l'aide de M. Dujardin.\n"
-                    "N'attribue jamais à l'élève une information formulée uniquement par M. Dujardin.\n\n"
+                    "Utilise cette partie pour mesurer précisément les relances, indices et le guidage de M. Dujardin.\n"
+                    "Pour chaque compétence, repère si l'élève répond spontanément, après une petite relance, "
+                    "après plusieurs indices, ou grâce à un guidage étape par étape.\n"
+                    "N'attribue jamais à l'élève une information formulée uniquement par M. Dujardin.\n"
+                    "IMPORTANT : si une compétence est reconstruite pas à pas par plusieurs questions de M. Dujardin, "
+                    "l'autonomie vaut 2 au maximum, même si les réponses finales sont toutes correctes.\n\n"
                     f"{dialogue_text}"
                 ),
             },
@@ -740,6 +799,10 @@ def build_report_text(student_state, history, assessment):
     for comp in assessment["competences"]:
         level = comp["niveau"]
         lines.append(f"- {comp['nom']} : {LEVEL_LABELS[level]}")
+        if "autonomie" in comp:
+            lines.append(
+                f"  Autonomie observée : niveau {comp['autonomie']} / 4"
+            )
         lines.append(f"  Justification : {comp['justification']}")
 
     lines.append("")
